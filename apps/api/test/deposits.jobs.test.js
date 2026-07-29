@@ -46,7 +46,6 @@ injectMock('config/env', () => ({
 
 // Load the SUT once — all stubs are already in cache.
 const {
-  startDepositPoller,
   formatDepositMessage,
   pollWallet,
   runDepositSweep,

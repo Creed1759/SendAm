@@ -48,7 +48,6 @@ model Wallet {
   paymentCursor      String?
   funded             Boolean  @default(false)
   network            String   @default("testnet")
-  paymentCursor      String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
