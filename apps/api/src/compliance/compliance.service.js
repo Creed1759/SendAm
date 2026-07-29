@@ -80,7 +80,7 @@ const screenSanctions = ({ destinationCountry, routeType }) => {
   };
 };
 
-const enforceTransactionPolicy = async ({ user, amount, routeType, destinationCountry }) => {
+const enforceTransactionPolicy = async ({ user, amount, routeType, destinationCountry, tx = prisma }) => {
   const profile = await getOrCreateKycProfile(user);
   const limits = tierLimits[profile.tier] || tierLimits[0];
   const parsedAmount = Number(amount);
@@ -106,7 +106,7 @@ const enforceTransactionPolicy = async ({ user, amount, routeType, destinationCo
   }
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const recent = await prisma.transaction.findMany({
+  const recent = await tx.transaction.findMany({
     where: {
       userId: user.id,
       status: { in: ['success', 'processing', 'pending'] },
@@ -114,7 +114,7 @@ const enforceTransactionPolicy = async ({ user, amount, routeType, destinationCo
     },
     select: { amount: true },
   });
-  const dailyTotal = recent.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  const dailyTotal = recent.reduce((sum, t) => sum + Number(t.amount || 0), 0);
   if (dailyTotal + parsedAmount > limits.daily) {
     throw new Error(`This payment exceeds your tier ${profile.tier} daily limit.`);
   }
