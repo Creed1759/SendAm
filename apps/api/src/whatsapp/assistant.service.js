@@ -10,6 +10,7 @@ const { createRecipientResolver } = require('./recipientResolver');
 const prisma = require('../common/prisma');
 
 const PENDING_SEND_TTL_MS = 10 * 60 * 1000;
+const NATIVE_ASSET = 'XLM';
 
 const resolveUser = async (phoneNumber, whatsappName) => {
   let user = await prisma.user.findUnique({ where: { phoneNumber } });
@@ -30,12 +31,13 @@ const parsePaymentIntent = (text) => {
     /(?:send|pay|transfer)\s+([\d.]+)\s*((?!to\b)[a-zA-Z]{2,5})?\s+(?:to\s+)?(.+)/i
   );
   if (!sendMatch) return null;
-
   return {
     amount: sendMatch[1],
-    // No unit specified — let payment.orchestrator default to the
-    // destination chain's native asset instead of guessing here.
-    asset: sendMatch[2] ? sendMatch[2].toUpperCase() : undefined,
+    // No unit specified — name the native asset here rather than leaving it
+    // undefined. payment.orchestrator resolves the same default (NATIVE_ASSET),
+    // but the confirmation message is built from this value, so leaving it
+    // undefined showed the user "Amount: 10 undefined".
+    asset: sendMatch[2] ? sendMatch[2].toUpperCase() : NATIVE_ASSET,
     recipient: sendMatch[3].trim(),
   };
 };
