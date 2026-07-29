@@ -35,8 +35,12 @@ jobs:
       - run: npm run prisma:generate --workspace=apps/api
         env:
           DATABASE_URL: postgresql://postgres:password@localhost:5432/sendam_test
-      # Validate database migrations against clean Postgres instance
-      - run: npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
+      # Validate database migrations against a clean Postgres instance. Run it
+      # through the workspace, not with --schema from the repo root: prisma
+      # discovers datasource.url from apps/api/prisma.config.ts, and from the
+      # root that file is never loaded — "The datasource.url property is
+      # required in your Prisma config file when using prisma migrate deploy".
+      - run: npm run prisma:deploy --workspace=apps/api
         env:
           DATABASE_URL: postgresql://postgres:password@localhost:5432/sendam_test
       # Unit tests (parser, crypto, admin auth, transfer guardrails, recipient
