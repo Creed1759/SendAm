@@ -131,8 +131,12 @@ injectMock('services/policyClient', {
 });
 
 // --- Compliance (local fallback, no external policy call) ------------------
+let complianceEnforcementCalls = 0;
 injectMock('compliance/compliance.service', {
-  enforceTransactionPolicy: async () => ({ riskScore: 10 }),
+  enforceTransactionPolicy: async () => {
+    complianceEnforcementCalls += 1;
+    return { riskScore: 10 };
+  },
 });
 
 // --- Payment orchestrator (only this boundary is faked) -------------------
@@ -286,6 +290,7 @@ const resetState = () => {
   sentMessages.length = 0;
   paymentResults.length = 0;
   pendingClaimResults.length = 0;
+  complianceEnforcementCalls = 0;
   prismaMock.processedMessage._seen.clear();
 };
 
@@ -318,6 +323,11 @@ test('full happy path: webhook POST -> parse -> confirmation -> PIN -> receipt',
     assert.ok(sentMessages[1].body.includes('Payment success'), 'receipt sent');
     assert.ok(sentMessages[1].body.includes('tx_1'), 'transaction id in receipt');
     assert.equal(paymentResults.length, 1, 'payment executed exactly once');
+    assert.equal(
+      complianceEnforcementCalls,
+      0,
+      'WhatsApp delegates compliance enforcement to the payment orchestrator'
+    );
   } finally {
     await teardown();
   }
