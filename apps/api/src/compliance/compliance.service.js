@@ -1,5 +1,7 @@
 const config = require('../config/env');
 const prisma = require('../common/prisma');
+const logger = require('../utils/logger');
+const smileId = require('./smileId.provider');
 
 const tierLimits = {
   0: { daily: 0, single: 0 },
@@ -41,6 +43,147 @@ const getOrCreateKycProfile = async (user) => {
   }
   return profile;
 };
+
+const validateApplicant = (applicant) => {
+  const required = ['country', 'idType', 'idNumber', 'firstName', 'lastName'];
+  const missing = required.filter((field) => !String(applicant[field] || '').trim());
+  if (missing.length) {
+    const error = new Error(`Missing required KYC fields: ${missing.join(', ')}`);
+    error.statusCode = 400;
+    throw error;
+  }
+};
+
+const startKycVerification = async ({ user, applicant }) => {
+  if (config.compliance.provider !== 'smileid') {
+    const error = new Error(`Unsupported KYC provider: ${config.compliance.provider}`);
+    error.statusCode = 503;
+    throw error;
+  }
+  validateApplicant(applicant);
+  const profile = await getOrCreateKycProfile(user);
+
+  // A provider job id is stable for the profile. Repeated client requests and
+  // retry-after-timeout submissions therefore cannot create multiple jobs.
+  if (profile.status === 'pending' && profile.providerReference) return profile;
+  const jobId = profile.providerReference || `sendam-${profile.id}`;
+  await prisma.kycProfile.update({
+    where: { id: profile.id },
+    data: {
+      provider: 'smileid',
+      providerReference: jobId,
+      status: 'pending',
+      deniedReason: null,
+    },
+  });
+
+  try {
+    await smileId.submitVerification({
+      jobId,
+      userId: user.id,
+      phoneNumber: user.phoneNumber,
+      applicant,
+    });
+  } catch (error) {
+    // The provider may have accepted a request before a timeout. Preserve the
+    // stable job id and flag it for recovery; a retry uses that same id.
+    await prisma.kycProfile.update({
+      where: { id: profile.id },
+      data: { status: 'review', deniedReason: 'KYC provider submission requires operator recovery' },
+    });
+    logger.error('kyc_submission_failed', { profileId: profile.id, provider: 'smileid', message: error.message });
+    error.statusCode = error.statusCode || 502;
+    throw error;
+  }
+
+  logger.info('kyc_submission_accepted', { profileId: profile.id, provider: 'smileid', jobId });
+  return prisma.kycProfile.findUnique({ where: { id: profile.id } });
+};
+
+const callbackDecision = (resultCode) => {
+  if (['1020', '1021'].includes(String(resultCode))) return { status: 'approved', tier: 1, deniedReason: null };
+  if (String(resultCode) === '1022') return { status: 'rejected', tier: 0, deniedReason: 'Identity details did not match' };
+  return { status: 'review', tier: 0, deniedReason: 'Provider result requires manual review' };
+};
+
+const processSmileIdCallback = async (payload) => {
+  if (!smileId.verifyCallback({ signature: payload.signature, timestamp: payload.timestamp })) {
+    const error = new Error('Invalid or expired Smile ID callback signature');
+    error.statusCode = 401;
+    throw error;
+  }
+
+  const partnerParams = payload.PartnerParams || payload.partner_params || {};
+  const jobId = partnerParams.job_id;
+  const userId = partnerParams.user_id;
+  if (!jobId || !userId || !payload.ResultCode) {
+    const error = new Error('Malformed Smile ID callback');
+    error.statusCode = 400;
+    throw error;
+  }
+  const eventId = cryptoHash(`${payload.signature}:${payload.timestamp}`);
+  const decision = callbackDecision(payload.ResultCode);
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const profile = await tx.kycProfile.findFirst({
+        where: { provider: 'smileid', providerReference: jobId, userId },
+      });
+      if (!profile) {
+        const error = new Error('Smile ID callback does not match a KYC job');
+        error.statusCode = 202;
+        throw error;
+      }
+
+      await tx.kycWebhookEvent.create({
+        data: {
+          provider: 'smileid',
+          providerEventId: eventId,
+          profileId: profile.id,
+          resultCode: String(payload.ResultCode),
+        },
+      });
+      const updated = await tx.kycProfile.update({
+        where: { id: profile.id },
+        data: {
+          ...decision,
+          riskScore: decision.status === 'approved' ? profile.riskScore : Math.max(profile.riskScore, 50),
+          metadata: {
+            resultCode: String(payload.ResultCode),
+            resultText: String(payload.ResultText || ''),
+            smileJobId: String(payload.SmileJobID || ''),
+            verifiedAt: new Date().toISOString(),
+          },
+        },
+      });
+      await tx.user.update({
+        where: { id: profile.userId },
+        data: { kycTier: updated.tier, riskScore: updated.riskScore },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorType: 'provider',
+          actorId: 'smileid',
+          action: 'kyc.callback.processed',
+          entityType: 'KycProfile',
+          entityId: profile.id,
+          metadata: { resultCode: String(payload.ResultCode), status: updated.status },
+        },
+      });
+      return updated;
+    });
+    logger.info('kyc_callback_processed', { profileId: result.id, status: result.status, resultCode: String(payload.ResultCode) });
+    return { duplicate: false, profile: result };
+  } catch (error) {
+    if (error.code === 'P2002') {
+      logger.info('kyc_callback_duplicate', { provider: 'smileid', eventId });
+      return { duplicate: true };
+    }
+    throw error;
+  }
+};
+
+const cryptoHash = (value) => require('crypto').createHash('sha256').update(value).digest('hex');
 
 const calculateRiskScore = ({ amount, routeType, destinationCountry, profileRiskScore = 0 }) => {
   let score = 10;
@@ -151,4 +294,7 @@ module.exports = {
   getOrCreateKycProfile,
   enforceTransactionPolicy,
   calculateRiskScore,
+  startKycVerification,
+  processSmileIdCallback,
+  callbackDecision,
 };

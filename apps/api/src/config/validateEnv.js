@@ -30,6 +30,15 @@ const validateEnv = (config) => {
     problems.push('PIN_PEPPER must be set in production for secure PIN hashing.');
   }
 
+  if (config.isProduction && config.compliance?.provider === 'smileid') {
+    const smile = config.compliance.smileId || {};
+    if (!smile.partnerId || !smile.apiKey || !smile.callbackUrl) {
+      problems.push('SMILE_ID_PARTNER_ID, SMILE_ID_API_KEY, and SMILE_ID_CALLBACK_URL are required in production.');
+    } else if (!smile.callbackUrl.startsWith('https://')) {
+      problems.push('SMILE_ID_CALLBACK_URL must use HTTPS in production.');
+    }
+  }
+
   if (!['meta', 'sim'].includes(config.messageTransport)) {
     problems.push(`MESSAGE_TRANSPORT must be either 'meta' or 'sim' (got '${config.messageTransport}').`);
   }
