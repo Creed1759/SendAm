@@ -47,6 +47,14 @@ module.exports = {
   redis: {
     url: process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL,
   },
+  observability: {
+    serviceName: process.env.SERVICE_NAME || 'sendam-api',
+    release: process.env.RELEASE_SHA,
+    metricsToken: process.env.METRICS_TOKEN,
+    errorMonitorWebhookUrl: process.env.ERROR_MONITOR_WEBHOOK_URL,
+    errorMonitorToken: process.env.ERROR_MONITOR_TOKEN,
+    errorMonitorTimeoutMs: Number(process.env.ERROR_MONITOR_TIMEOUT_MS || 3000),
+  },
   storage: {
     r2Endpoint: process.env.CLOUDFLARE_R2_ENDPOINT,
     r2Bucket: process.env.CLOUDFLARE_R2_BUCKET,

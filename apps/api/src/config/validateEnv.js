@@ -30,6 +30,17 @@ const validateEnv = (config) => {
     problems.push('PIN_PEPPER must be set in production for secure PIN hashing.');
   }
 
+  if (config.isProduction) {
+    if (!config.observability?.metricsToken || config.observability.metricsToken.length < 32) {
+      problems.push('METRICS_TOKEN must be at least 32 characters in production.');
+    }
+    if (!config.observability?.errorMonitorWebhookUrl) {
+      problems.push('ERROR_MONITOR_WEBHOOK_URL must be set in production.');
+    } else if (!config.observability.errorMonitorWebhookUrl.startsWith('https://')) {
+      problems.push('ERROR_MONITOR_WEBHOOK_URL must use HTTPS in production.');
+    }
+  }
+
   if (!['meta', 'sim'].includes(config.messageTransport)) {
     problems.push(`MESSAGE_TRANSPORT must be either 'meta' or 'sim' (got '${config.messageTransport}').`);
   }

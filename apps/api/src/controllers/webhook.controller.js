@@ -5,6 +5,8 @@ const config = require('../config/env');
 const logger = require('../utils/logger');
 const { enqueue } = require('../queues/queue.service');
 const prisma = require('../common/prisma');
+const { increment } = require('../observability/metrics');
+const { captureException } = require('../observability/errors');
 
 /**
  * Transport adapter for the WhatsApp Cloud API webhook. Its only jobs are
@@ -15,6 +17,7 @@ const prisma = require('../common/prisma');
  * The POST signature is verified upstream (verifyWhatsappSignature middleware).
  */
 const handleIncomingMessage = async (req, res) => {
+  increment('sendam_webhook_events_total', { status: 'received' });
   res.status(200).send('EVENT_RECEIVED');
 
   try {
@@ -34,6 +37,7 @@ const handleIncomingMessage = async (req, res) => {
       } catch (err) {
         if (err.code === 'P2002') {
           logger.info(`Skipping duplicate WhatsApp message ${message.id}`);
+          increment('sendam_webhook_events_total', { status: 'duplicate' });
           return;
         }
         throw err;
@@ -50,6 +54,7 @@ const handleIncomingMessage = async (req, res) => {
     const { totalHits } = await consume(`wa:${from}`, botWindowMs);
     if (totalHits > botMax) {
       logger.warn(`Throttling WhatsApp sender ${from} (${totalHits} msgs in window)`);
+      increment('sendam_webhook_events_total', { status: 'throttled' });
       if (totalHits === botMax + 1) {
         sendTextMessage(from, replies.rateLimited());
       }
@@ -65,8 +70,11 @@ const handleIncomingMessage = async (req, res) => {
       messageType: message.type,
       whatsappMessageId: message.id,
     }, options);
+    increment('sendam_webhook_events_total', { status: 'enqueued' });
   } catch (error) {
-    logger.error('Webhook processing error:', error);
+    increment('sendam_webhook_events_total', { status: 'failed' });
+    logger.error('webhook_processing_error', error);
+    captureException(error, { source: 'webhook' });
   }
 };
 

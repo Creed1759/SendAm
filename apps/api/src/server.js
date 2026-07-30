@@ -1,3 +1,6 @@
+const { initializeErrorMonitoring, captureException } = require('./observability/errors');
+initializeErrorMonitoring();
+
 const app = require('./app');
 const config = require('./config/env');
 const connectDB = require('./config/db');
@@ -13,7 +16,7 @@ const startServer = async () => {
   registerJobs();
 
   const server = app.listen(config.port, () => {
-    logger.info(`Server running in ${config.env} mode on port ${config.port}`);
+    logger.info('api_started', { environment: config.env, port: config.port });
   });
 
   // Graceful shutdown: stop accepting new connections, let in-flight requests
@@ -44,4 +47,8 @@ const startServer = async () => {
   process.on('SIGINT', () => shutdown('SIGINT'));
 };
 
-startServer();
+startServer().catch(async (error) => {
+  logger.error('api_start_failed', error);
+  await captureException(error, { source: 'api_startup' });
+  process.exit(1);
+});
