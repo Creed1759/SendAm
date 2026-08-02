@@ -157,7 +157,7 @@ const getSystemHealth = async (_req, res, next) => {
     sendSuccess(res, {
       api: 'ok',
       database: 'ok',
-      queues: process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL ? 'redis-configured' : 'inline-dev-mode',
+      queues: process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL ? 'redis-configured' : 'unavailable',
       settlementRail: 'stellar',
       custodyModel: 'direct',
       timestamp: new Date().toISOString(),

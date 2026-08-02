@@ -50,6 +50,12 @@ module.exports = {
   redis: {
     url: process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL,
   },
+  worker: {
+    concurrency: Number(process.env.WORKER_CONCURRENCY || 5),
+    lockDurationMs: Number(process.env.WORKER_LOCK_DURATION_MS || 30000),
+    shutdownTimeoutMs: Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS || 30000),
+    heartbeatIntervalMs: Number(process.env.WORKER_HEARTBEAT_INTERVAL_MS || 60000),
+  },
   storage: {
     r2Endpoint: process.env.CLOUDFLARE_R2_ENDPOINT,
     r2Bucket: process.env.CLOUDFLARE_R2_BUCKET,
@@ -76,6 +82,14 @@ module.exports = {
     smileId: {
       partnerId: process.env.SMILE_ID_PARTNER_ID,
       apiKey: process.env.SMILE_ID_API_KEY,
+      callbackUrl: process.env.SMILE_ID_CALLBACK_URL,
+      baseUrl: process.env.SMILE_ID_BASE_URL || (
+        process.env.NODE_ENV === 'production'
+          ? 'https://api.smileidentity.com/v2/verify_async'
+          : 'https://testapi.smileidentity.com/v2/verify_async'
+      ),
+      timeoutMs: Number(process.env.SMILE_ID_TIMEOUT_MS || 10000),
+      callbackToleranceMs: Number(process.env.SMILE_ID_CALLBACK_TOLERANCE_SEC || 300) * 1000,
     },
     dojah: {
       appId: process.env.DOJAH_APP_ID,

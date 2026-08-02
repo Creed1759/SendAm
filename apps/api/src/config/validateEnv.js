@@ -50,6 +50,15 @@ const validateEnv = (config) => {
     problems.push('PIN_PEPPER must be set in production for secure PIN hashing.');
   }
 
+  if (config.isProduction && config.compliance?.provider === 'smileid') {
+    const smile = config.compliance.smileId || {};
+    if (!smile.partnerId || !smile.apiKey || !smile.callbackUrl) {
+      problems.push('SMILE_ID_PARTNER_ID, SMILE_ID_API_KEY, and SMILE_ID_CALLBACK_URL are required in production.');
+    } else if (!smile.callbackUrl.startsWith('https://')) {
+      problems.push('SMILE_ID_CALLBACK_URL must use HTTPS in production.');
+    }
+  }
+
   if (!['meta', 'sim'].includes(config.messageTransport)) {
     problems.push(`MESSAGE_TRANSPORT must be either 'meta' or 'sim' (got '${config.messageTransport}').`);
   }
@@ -71,4 +80,16 @@ const validateEnv = (config) => {
   }
 };
 
-module.exports = { validateEnv };
+const validateWorkerEnv = (config) => {
+  const problems = [];
+  if (!config.redis?.url) problems.push('REDIS_URL or UPSTASH_REDIS_URL must be set for the background worker.');
+  if (!Number.isInteger(config.worker?.concurrency) || config.worker.concurrency < 1) {
+    problems.push('WORKER_CONCURRENCY must be a positive integer.');
+  }
+  if (!Number.isFinite(config.worker?.lockDurationMs) || config.worker.lockDurationMs < 5000) {
+    problems.push('WORKER_LOCK_DURATION_MS must be at least 5000.');
+  }
+  if (problems.length) throw new Error(`Invalid worker configuration:\n  - ${problems.join('\n  - ')}`);
+};
+
+module.exports = { validateEnv, validateWorkerEnv };
