@@ -6,6 +6,7 @@ const requireRestApiEnabled = require('../middlewares/requireRestApiEnabled');
 
 router.get('/kyc/:phone', requireAdmin, controller.getProfile);
 router.post('/kyc/start', requireRestApiEnabled, controller.startKyc);
+router.post('/kyc/callback/smileid', controller.smileIdCallback);
 router.post('/kyc/:id/review', requireAdmin, controller.reviewKyc);
 router.post('/pin', requireRestApiEnabled, controller.setPin);
 
