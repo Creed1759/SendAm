@@ -2,7 +2,6 @@ const { Prisma } = require('@prisma/client');
 const walletService = require('../wallet/wallet.service');
 const { validateAddress } = require('../wallet/stellar.adapter');
 const { executePayment } = require('../payment/payment.orchestrator');
-const { enforceTransactionPolicy } = require('../compliance/compliance.service');
 const { verifyPin } = require('../compliance/pin.service');
 const { sendTextMessage } = require('../services/whatsapp.service');
 const { claimPendingSend } = require('./pendingClaim');
@@ -111,13 +110,9 @@ const handlePendingPin = async ({ phoneNumber, user, text, notify }) => {
     return true;
   }
 
-  await enforceTransactionPolicy({
-    user,
-    amount: pending.amount,
-    routeType: pending.routeType,
-    destinationCountry: 'NG',
-  });
-
+  // executePayment is the authoritative compliance boundary. Keeping policy
+  // enforcement there ensures every payment channel applies it exactly once
+  // and keeps compliance evaluation inside the transaction creation boundary.
   const result = await executePayment({
     sender: user,
     destination: pending.destination,

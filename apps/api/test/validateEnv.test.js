@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const { validateEnv } = require('../src/config/validateEnv');
+const { validateEnv, validateWorkerEnv } = require('../src/config/validateEnv');
 
 const validKey = crypto.randomBytes(32).toString('hex');
 const validSecret = crypto.randomBytes(32).toString('hex');
@@ -143,4 +143,18 @@ test('testnet with testnet USDC issuer does not throw', () => {
   config.stellar.isMainnet = false;
   config.stellar.usdcIssuer = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
   assert.doesNotThrow(() => validateEnv(config));
+});
+
+test('worker requires Redis and valid concurrency settings', () => {
+  assert.throws(
+    () => validateWorkerEnv({ redis: {}, worker: { concurrency: 5, lockDurationMs: 30000 } }),
+    /REDIS_URL/,
+  );
+  assert.throws(
+    () => validateWorkerEnv({ redis: { url: 'redis://localhost' }, worker: { concurrency: 0, lockDurationMs: 30000 } }),
+    /WORKER_CONCURRENCY/,
+  );
+  assert.doesNotThrow(
+    () => validateWorkerEnv({ redis: { url: 'redis://localhost' }, worker: { concurrency: 5, lockDurationMs: 30000 } }),
+  );
 });

@@ -13,12 +13,14 @@ try {
   ({ Queue, Worker } = require('bullmq'));
   IORedis = require('ioredis');
   connection = config.redis.url ? new IORedis(config.redis.url, { maxRetriesPerRequest: null }) : undefined;
+  connection?.on('error', (error) => logger.error('queue_redis_error', { message: error.message }));
 } catch (_error) {
   logger.warn('BullMQ is not installed; webhook jobs will run inline in development.');
 }
 
 const inlineProcessors = new Map();
 const queues = new Map();
+const workers = new Map();
 
 const getQueue = (name) => {
   if (!Queue || !connection) return null;
@@ -83,6 +85,7 @@ const enqueue = async (name, jobName, data, options = {}) => {
     setImmediate(() => processor({ name: jobName, data: correlatedData, id: options.jobId }).catch((error) => {
       logger.error('inline_queue_job_failed', { queue: name, jobName, error });
     }));
+    return { id: options.jobId || `inline-${Date.now()}` };
   }
   increment('sendam_queue_jobs_total', { queue: name, status: 'enqueued' });
   return { id: `inline-${Date.now()}` };
@@ -91,4 +94,5 @@ const enqueue = async (name, jobName, data, options = {}) => {
 module.exports = {
   enqueue,
   registerProcessor,
+  closeQueues,
 };

@@ -5,11 +5,15 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "start:worker": "node src/worker.js",
     "dev": "nodemon src/server.js",
+    "dev:worker": "nodemon src/worker.js",
     "lint": "eslint .",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
+    "db:validate": "node scripts/validate-production-db.js",
+    "db:provision": "prisma migrate deploy && node scripts/validate-production-db.js",
     "test": "node --test"
   },
   "dependencies": {

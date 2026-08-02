@@ -22,25 +22,29 @@ const handleIncomingMessage = async (req, res) => {
 
   try {
     const body = req.body;
-    if (body.object !== 'whatsapp_business_account') return;
+    if (body.object !== 'whatsapp_business_account') return res.status(200).send('EVENT_RECEIVED');
 
     const value = body.entry?.[0]?.changes?.[0]?.value;
     const message = value?.messages?.[0];
-    if (!message || !['text', 'audio', 'voice'].includes(message.type)) return;
+    if (!message || !['text', 'audio', 'voice'].includes(message.type)) {
+      return res.status(200).send('EVENT_RECEIVED');
+    }
 
     // Idempotency: Meta redelivers un-acked events, so dedup on message id
     // before doing anything with side effects. A duplicate insert throws on
     // the unique index and we bail out without reprocessing.
     if (message.id) {
       try {
-        await prisma.processedMessage.create({ data: { messageId: message.id } });
+        await prisma.processedMessage.create({
+          data: { messageId: message.id, status: 'claiming' },
+        });
+        claimedMessageId = message.id;
       } catch (err) {
         if (err.code === 'P2002') {
           logger.info(`Skipping duplicate WhatsApp message ${message.id}`);
           increment('sendam_webhook_events_total', { status: 'duplicate' });
           return;
         }
-        throw err;
       }
     }
 
@@ -58,7 +62,7 @@ const handleIncomingMessage = async (req, res) => {
       if (totalHits === botMax + 1) {
         sendTextMessage(from, replies.rateLimited());
       }
-      return;
+      return res.status(200).send('EVENT_RECEIVED');
     }
 
     const options = message.id ? { jobId: message.id } : {};
