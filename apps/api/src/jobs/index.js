@@ -1,9 +1,15 @@
 const { registerWhatsAppJobs } = require('./whatsapp.jobs');
-const { startPoller } = require('./poller');
+const { startDepositPoller } = require('./deposits.jobs');
 
 const registerJobs = () => {
-  registerWhatsAppJobs();
-  startPoller();
+  const whatsappWorker = registerWhatsAppJobs();
+  const depositPoller = startDepositPoller();
+  return {
+    whatsappWorker,
+    stop: async () => {
+      depositPoller.stop();
+    },
+  };
 };
 
 module.exports = {

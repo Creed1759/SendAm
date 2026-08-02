@@ -4,16 +4,14 @@ const connectDB = require('./config/db');
 const { validateEnv } = require('./config/validateEnv');
 const prisma = require('./common/prisma');
 const logger = require('./utils/logger');
-const { registerJobs } = require('./jobs');
-const { stopPoller } = require('./jobs/poller');
+const { closeQueues } = require('./queues/queue.service');
 
 const startServer = async () => {
   validateEnv(config);
   await connectDB();
-  registerJobs();
 
   const server = app.listen(config.port, () => {
-    logger.info(`Server running in ${config.env} mode on port ${config.port}`);
+    logger.info('api_started', { env: config.env, port: config.port, processType: 'api' });
   });
 
   // Graceful shutdown: stop accepting new connections, let in-flight requests
@@ -21,11 +19,9 @@ const startServer = async () => {
   // deploy/restart, so we drain instead of hard-killing the process.
   const shutdown = (signal) => {
     logger.info(`${signal} received — shutting down gracefully.`);
-    // Stop the poller before the DB link closes so a tick can't fire mid-drain.
-    stopPoller();
-
     server.close(async () => {
       try {
+        await closeQueues();
         await prisma.$disconnect();
       } catch (error) {
         logger.error('Error closing PostgreSQL connection:', error.message);
@@ -44,4 +40,11 @@ const startServer = async () => {
   process.on('SIGINT', () => shutdown('SIGINT'));
 };
 
-startServer();
+if (require.main === module) {
+  startServer().catch((error) => {
+    logger.error('api_start_failed', { message: error.message });
+    process.exit(1);
+  });
+}
+
+module.exports = { startServer };

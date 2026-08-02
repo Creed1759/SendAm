@@ -47,6 +47,12 @@ module.exports = {
   redis: {
     url: process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL,
   },
+  worker: {
+    concurrency: Number(process.env.WORKER_CONCURRENCY || 5),
+    lockDurationMs: Number(process.env.WORKER_LOCK_DURATION_MS || 30000),
+    shutdownTimeoutMs: Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS || 30000),
+    heartbeatIntervalMs: Number(process.env.WORKER_HEARTBEAT_INTERVAL_MS || 60000),
+  },
   storage: {
     r2Endpoint: process.env.CLOUDFLARE_R2_ENDPOINT,
     r2Bucket: process.env.CLOUDFLARE_R2_BUCKET,

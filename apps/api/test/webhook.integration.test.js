@@ -65,12 +65,27 @@ const prismaMock = {
   alias: { findUnique: async () => null },
   processedMessage: {
     _seen: new Set(),
+    _status: new Map(),
     create: async ({ data }) => {
       if (prismaMock.processedMessage._seen.has(data.messageId)) {
         throw Object.assign(new Error('Unique constraint'), { code: 'P2002' });
       }
       prismaMock.processedMessage._seen.add(data.messageId);
+      prismaMock.processedMessage._status.set(data.messageId, data.status);
       return data;
+    },
+    findUnique: async ({ where }) => ({
+      messageId: where.messageId,
+      status: prismaMock.processedMessage._status.get(where.messageId),
+    }),
+    update: async ({ where, data }) => {
+      prismaMock.processedMessage._status.set(where.messageId, data.status);
+      return { messageId: where.messageId, ...data };
+    },
+    updateMany: async ({ where, data }) => {
+      if (where.status && prismaMock.processedMessage._status.get(where.messageId) !== where.status) return { count: 0 };
+      prismaMock.processedMessage._status.set(where.messageId, data.status);
+      return { count: 1 };
     },
   },
   rateLimitHit: {
@@ -287,6 +302,7 @@ const resetState = () => {
   paymentResults.length = 0;
   pendingClaimResults.length = 0;
   prismaMock.processedMessage._seen.clear();
+  prismaMock.processedMessage._status.clear();
 };
 
 // ---------------------------------------------------------------------------

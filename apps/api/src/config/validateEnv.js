@@ -60,4 +60,16 @@ const validateEnv = (config) => {
   }
 };
 
-module.exports = { validateEnv };
+const validateWorkerEnv = (config) => {
+  const problems = [];
+  if (!config.redis?.url) problems.push('REDIS_URL or UPSTASH_REDIS_URL must be set for the background worker.');
+  if (!Number.isInteger(config.worker?.concurrency) || config.worker.concurrency < 1) {
+    problems.push('WORKER_CONCURRENCY must be a positive integer.');
+  }
+  if (!Number.isFinite(config.worker?.lockDurationMs) || config.worker.lockDurationMs < 5000) {
+    problems.push('WORKER_LOCK_DURATION_MS must be at least 5000.');
+  }
+  if (problems.length) throw new Error(`Invalid worker configuration:\n  - ${problems.join('\n  - ')}`);
+};
+
+module.exports = { validateEnv, validateWorkerEnv };

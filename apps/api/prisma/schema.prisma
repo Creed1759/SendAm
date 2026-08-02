@@ -249,7 +249,12 @@ model AdminRole {
 model ProcessedMessage {
   id        String   @id @default(cuid())
   messageId String   @unique
+  status    String   @default("completed")
+  lastError String?
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([status, updatedAt])
 }
 
 model RateLimitHit {
