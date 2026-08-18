@@ -19,6 +19,25 @@ const baseConfig = () => ({
   },
 });
 
+const productionConfig = () => ({
+  ...baseConfig(),
+  isProduction: true,
+  compliance: { pinPepper: 'pepper' },
+  whatsapp: {
+    token: 'system-user-token',
+    phoneNumberId: 'phone-id',
+    verifyToken: 'verify-token-at-least-32-characters',
+    appSecret: 'app-secret',
+    callbackUrl: 'https://api.example.com/webhook',
+    businessAccountId: 'waba-id',
+    graphApiVersion: 'v99.0',
+  },
+  observability: {
+    metricsToken: 'metrics-token-at-least-32-characters',
+    errorMonitorWebhookUrl: 'https://alerts.example.com/sendam',
+  },
+});
+
 test('valid config does not throw', () => {
   assert.doesNotThrow(() => validateEnv(baseConfig()));
 });
@@ -71,39 +90,33 @@ test('missing PIN_PEPPER throws in production', () => {
 });
 
 test('production Meta transport requires complete webhook configuration', () => {
-  const config = baseConfig();
-  config.isProduction = true;
-  config.messageTransport = 'meta';
+  const config = productionConfig();
   config.whatsapp = { appSecret: 'app-secret' };
-  config.compliance = { pinPepper: 'pepper' };
   assert.throws(() => validateEnv(config), /WHATSAPP_VERIFY_TOKEN/);
 
-  config.whatsapp = {
-    token: 'system-user-token',
-    phoneNumberId: 'phone-id',
-    verifyToken: 'verify-token-at-least-32-characters',
-    appSecret: 'app-secret',
-    callbackUrl: 'https://api.example.com/webhook',
-    businessAccountId: 'waba-id',
-    graphApiVersion: 'v99.0',
-  };
+  config.whatsapp = productionConfig().whatsapp;
+  assert.doesNotThrow(() => validateEnv(config));
+});
+
+test('production requires metrics authentication and error alert routing', () => {
+  const config = productionConfig();
+  config.observability = {};
+  assert.throws(() => validateEnv(config), /METRICS_TOKEN/);
+  assert.throws(() => validateEnv(config), /ERROR_MONITOR_WEBHOOK_URL/);
+
+  config.observability = productionConfig().observability;
   assert.doesNotThrow(() => validateEnv(config));
 });
 
 test('production WhatsApp callback URL must use HTTPS', () => {
-  const config = baseConfig();
-  config.isProduction = true;
-  config.messageTransport = 'meta';
-  config.whatsapp = {
-    token: 'system-user-token',
-    phoneNumberId: 'phone-id',
-    verifyToken: 'verify-token-at-least-32-characters',
-    appSecret: 'app-secret',
-    callbackUrl: 'http://api.example.com/webhook',
-    businessAccountId: 'waba-id',
-    graphApiVersion: 'v99.0',
-  };
-  config.compliance = { pinPepper: 'pepper' };
+  const config = productionConfig();
+  config.whatsapp.callbackUrl = 'http://api.example.com/webhook';
+  assert.throws(() => validateEnv(config), /must use HTTPS/);
+});
+
+test('production error monitor endpoint must use HTTPS', () => {
+  const config = productionConfig();
+  config.observability.errorMonitorWebhookUrl = 'http://alerts.example.com/sendam';
   assert.throws(() => validateEnv(config), /must use HTTPS/);
 });
 
