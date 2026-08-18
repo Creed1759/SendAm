@@ -41,10 +41,11 @@ jobs:
         if: matrix.scenario == 'existing'
         working-directory: apps/api
         run: |
-          mv prisma/migrations/20260802000000_add_kyc_webhook_event /tmp/forward-migration
+          forward_migration="$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+          mv "$forward_migration" /tmp/forward-migration
           npm run prisma:deploy
           node -e "const {Client}=require('pg'); (async()=>{const c=new Client({connectionString:process.env.DATABASE_URL}); await c.connect(); await c.query(\`INSERT INTO \"User\" (id,\"phoneNumber\",\"updatedAt\") VALUES ('migration-sentinel','+2348000000101',NOW())\`); await c.end()})().catch(e=>{console.error(e);process.exit(1)})"
-          mv /tmp/forward-migration prisma/migrations/20260802000000_add_kyc_webhook_event
+          mv /tmp/forward-migration "$forward_migration"
       - name: Apply all forward migrations
         run: npm run db:provision --workspace=apps/api
       - name: Verify existing data survived
