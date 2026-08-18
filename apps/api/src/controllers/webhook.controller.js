@@ -18,8 +18,7 @@ const { captureException } = require('../observability/errors');
  */
 const handleIncomingMessage = async (req, res) => {
   increment('sendam_webhook_events_total', { status: 'received' });
-  res.status(200).send('EVENT_RECEIVED');
-
+  let claimedMessageId = null;
   try {
     const body = req.body;
     if (body.object !== 'whatsapp_business_account') return res.status(200).send('EVENT_RECEIVED');
@@ -41,9 +40,24 @@ const handleIncomingMessage = async (req, res) => {
         claimedMessageId = message.id;
       } catch (err) {
         if (err.code === 'P2002') {
-          logger.info(`Skipping duplicate WhatsApp message ${message.id}`);
-          increment('sendam_webhook_events_total', { status: 'duplicate' });
-          return;
+          const existing = await prisma.processedMessage.findUnique({ where: { messageId: message.id } });
+          if (existing?.status === 'failed') {
+            const reclaimed = await prisma.processedMessage.updateMany({
+              where: { messageId: message.id, status: 'failed' },
+              data: { status: 'claiming', lastError: null },
+            });
+            if (reclaimed.count === 1) claimedMessageId = message.id;
+          }
+          if (!claimedMessageId) {
+            logger.info(`Skipping duplicate WhatsApp message ${message.id}`);
+            increment('sendam_webhook_events_total', { status: 'duplicate' });
+            // A claiming row may belong to a concurrent request. Returning a
+            // retryable response prevents premature acknowledgement.
+            if (existing?.status === 'claiming') return res.status(503).send('ENQUEUE_IN_PROGRESS');
+            return res.status(200).send('EVENT_RECEIVED');
+          }
+        } else {
+          throw err;
         }
       }
     }
@@ -75,10 +89,31 @@ const handleIncomingMessage = async (req, res) => {
       whatsappMessageId: message.id,
     }, options);
     increment('sendam_webhook_events_total', { status: 'enqueued' });
+    if (claimedMessageId) {
+      await prisma.processedMessage.updateMany({
+        where: { messageId: claimedMessageId, status: 'claiming' },
+        data: { status: 'queued', lastError: null },
+      });
+    }
+    return res.status(200).send('EVENT_RECEIVED');
   } catch (error) {
     increment('sendam_webhook_events_total', { status: 'failed' });
     logger.error('webhook_processing_error', error);
     captureException(error, { source: 'webhook' });
+    // Preserve a recoverable durable state. A later Meta delivery atomically
+    // reclaims only failed rows; concurrent claiming/queued work is untouched.
+    if (claimedMessageId) {
+      try {
+        await prisma.processedMessage.updateMany({
+          where: { messageId: claimedMessageId, status: 'claiming' },
+          data: { status: 'failed', lastError: String(error.message).slice(0, 500) },
+        });
+      } catch (cleanupError) {
+        logger.error('Webhook delivery state recovery failed:', cleanupError);
+        captureException(cleanupError, { source: 'webhook_cleanup' });
+      }
+    }
+    if (!res.headersSent) return res.status(503).send('QUEUE_UNAVAILABLE');
   }
 };
 

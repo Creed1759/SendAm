@@ -54,11 +54,29 @@ const registerProcessor = (name, processor) => {
   };
   inlineProcessors.set(name, observedProcessor);
   if (Queue && Worker && connection) {
-    const worker = new Worker(name, observedProcessor, { connection });
+    if (workers.has(name)) return workers.get(name);
+    const worker = new Worker(name, observedProcessor, {
+      connection,
+      concurrency: config.worker.concurrency,
+      lockDuration: config.worker.lockDurationMs,
+    });
+    worker.on('completed', (job) => logger.info('queue_job_completed', {
+      queue: name,
+      jobId: job.id,
+      jobName: job.name,
+    }));
+    worker.on('failed', (job, error) => logger.error('queue_job_failed', {
+      queue: name,
+      jobId: job?.id,
+      jobName: job?.name,
+      attemptsMade: job?.attemptsMade,
+      message: error.message,
+    }));
     worker.on('error', (error) => {
       logger.error('queue_worker_error', { queue: name, error });
       captureException(error, { source: 'worker_runtime', queue: name });
     });
+    workers.set(name, worker);
     return worker;
   }
   return null;
@@ -87,8 +105,17 @@ const enqueue = async (name, jobName, data, options = {}) => {
     }));
     return { id: options.jobId || `inline-${Date.now()}` };
   }
-  increment('sendam_queue_jobs_total', { queue: name, status: 'enqueued' });
-  return { id: `inline-${Date.now()}` };
+  increment('sendam_queue_jobs_total', { queue: name, status: 'failed' });
+  throw new Error(`Queue "${name}" is unavailable: configure REDIS_URL and run the worker process`);
+};
+
+const closeQueues = async () => {
+  await Promise.all([...workers.values()].map((worker) => worker.close()));
+  await Promise.all([...queues.values()].map((queue) => queue.close()));
+  workers.clear();
+  queues.clear();
+  inlineProcessors.clear();
+  if (connection) await connection.quit();
 };
 
 module.exports = {
