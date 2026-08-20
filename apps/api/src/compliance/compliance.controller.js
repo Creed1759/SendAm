@@ -19,10 +19,16 @@ const getProfile = async (req, res, next) => {
   }
 };
 
+const getOwnProfile = async (req, res, next) => {
+  try {
+    const profile = await getOrCreateKycProfile(req.restUser);
+    return sendSuccess(res, withIdAlias(profile));
+  } catch (error) { return next(error); }
+};
+
 const startKyc = async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({ where: { phoneNumber: req.body.phoneNumber } });
-    if (!user) return sendError(res, 'User not found', 404);
+    const user = req.restUser;
     const profile = await startKycVerification({
       user,
       applicant: req.body,
@@ -89,8 +95,7 @@ const reviewKyc = async (req, res, next) => {
 
 const setPin = async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({ where: { phoneNumber: req.body.phoneNumber } });
-    if (!user) return sendError(res, 'User not found', 404);
+    const user = req.restUser;
     await prisma.user.update({
       where: { id: user.id },
       data: {
@@ -106,6 +111,7 @@ const setPin = async (req, res, next) => {
 
 module.exports = {
   getProfile,
+  getOwnProfile,
   startKyc,
   reviewKyc,
   setPin,
