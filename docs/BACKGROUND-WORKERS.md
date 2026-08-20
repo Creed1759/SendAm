@@ -99,3 +99,30 @@ deploy the previous API image. Never run both a legacy poller and the new poller
 for longer than the controlled overlap. Redis jobs are forward-compatible
 because queue and job names are unchanged; do not delete Redis or failed jobs
 during rollback.
+
+## Queue backup and restore drills
+
+Redis-backed BullMQ state is part of the disaster-recovery plan because accepted
+webhooks may be waiting, delayed, failed, or stalled when PostgreSQL is restored.
+Platform Engineering owns Redis backup/PITR settings and validates them during
+the **Verify restore drill** workflow. Backend owners own safe replay guidance,
+and Compliance plus Payments must approve replay for jobs that may have crossed
+an external financial boundary.
+
+Queue recovery objectives are:
+
+- **Redis queue-state RPO:** latest durable Redis snapshot or provider restore
+  point must be no older than 30 minutes for BullMQ wait/delayed/failed sets.
+- **Queue recovery RTO:** Redis restore and worker drain validation must fit
+  inside the 60-minute application RTO.
+
+During a drill, restore Redis into an isolated target and set
+`RESTORE_DRILL_REDIS_URL`. The verifier summarizes BullMQ wait, delayed, and
+failed counts without logging job payloads. If Redis cannot be restored, record
+that dependency gap in the evidence and keep the PostgreSQL drill failed until a
+queue recovery plan is proven.
+
+After an incident restore, start workers only after PostgreSQL validation and
+key access checks pass. Inspect failed or waiting jobs by redacted job ID, avoid
+copying payloads into tickets, reconcile any payment-related transaction before
+replay, and document the final queue depth in the incident evidence.

@@ -96,3 +96,76 @@ traffic.
 Test restores regularly: provision an isolated PostgreSQL instance from the
 latest backup, run `db:provision`, run `db:validate`, and verify representative
 user and transaction counts against the source.
+
+## Automated restore verification and disaster-recovery drills
+
+Platform Engineering owns PostgreSQL backup configuration, restore tooling, and
+quarterly disaster-recovery evidence. The Payments owner provides encrypted
+wallet validation approval, and Backend owners confirm that application-level
+schema and representative data checks still match release behavior.
+
+Recovery objectives for production data are:
+
+- **PostgreSQL RPO:** latest restorable backup or PITR point must be no older
+  than 24 hours; the workflow fails stale backups via
+  `RESTORE_DRILL_MAX_BACKUP_AGE_MINUTES`.
+- **PostgreSQL RTO:** an isolated restore, migration validation, data integrity
+  checks, wallet decryptability sampling, evidence capture, and teardown must
+  complete within 60 minutes via `RESTORE_DRILL_RTO_OBJECTIVE_MINUTES`.
+- **Evidence retention:** retain the GitHub Actions log, redacted JSON result,
+  backup ID, backup completion timestamp, measured RPO/RTO, incident commander,
+  approvers, and teardown confirmation for 13 months in the incident evidence
+  store. Do not store customer rows, wallet ciphertexts, plaintext keys, phone
+  numbers, or Redis payloads in evidence.
+
+The **Verify restore drill** workflow (`.github/workflows/verify-restore-drill.yml`)
+runs weekly and can be started manually with the `VERIFY_RESTORE` confirmation.
+It must target the protected `disaster-recovery-drill` environment, never
+production. Configure these environment secrets and variables:
+
+| Name | Type | Purpose |
+| --- | --- | --- |
+| `RESTORE_DRILL_COMMAND` | secret | Provider-specific command that restores the latest production backup into the isolated drill database only. |
+| `RESTORE_DRILL_DATABASE_URL` | secret | PostgreSQL URL for the isolated restore target; it is passed as `DRILL_DATABASE_URL`. |
+| `RESTORE_DRILL_ENCRYPTION_KEY` | secret | Approved recovery key material used only to decrypt sampled wallet records during the drill. |
+| `RESTORE_DRILL_REDIS_URL` | secret | Optional isolated Redis restore target for BullMQ queue-state checks. |
+| `RESTORE_DRILL_TEARDOWN_COMMAND` | secret | Provider-specific teardown for the drill database and Redis target; runs even after validation failure. |
+| `RESTORE_DRILL_ALERT_WEBHOOK_URL` | secret | Optional alert webhook for failed drills or stale backups. |
+| `LATEST_BACKUP_ID` | variable | Provider backup identifier recorded in evidence. |
+| `LATEST_BACKUP_COMPLETED_AT` | variable | ISO-8601 completion timestamp for the latest backup. |
+| `BACKUP_METADATA_JSON` | variable | Optional JSON override with `backupId` and `completedAt` fields. |
+| `RESTORE_DRILL_MAX_BACKUP_AGE_MINUTES` | variable | RPO threshold; default is 1440 minutes. |
+| `RESTORE_DRILL_RTO_OBJECTIVE_MINUTES` | variable | RTO threshold; default is 60 minutes. |
+
+The workflow restores the backup, runs `npm run db:verify-restore
+--workspace=apps/api`, and tears the target down. The verification script reuses
+production schema validation, counts representative `User`, `Wallet`, and
+`Transaction` rows without printing row contents, decrypts up to five wallet
+records through `ENCRYPTION_KEY`, validates optional Redis queue metadata, and
+emits only redacted JSON evidence.
+
+End-to-end drill procedure:
+
+1. Open an incident or scheduled-change ticket and assign a Platform Engineering
+   incident commander. Confirm Payments has approved temporary key access.
+2. Verify the target database and Redis names contain `drill` or another
+   non-production marker. Confirm no production service uses the target URLs.
+3. Update `LATEST_BACKUP_ID` and `LATEST_BACKUP_COMPLETED_AT` from the backup
+   provider, or set `BACKUP_METADATA_JSON` if the provider exports metadata.
+4. Start **Verify restore drill** with `VERIFY_RESTORE`, or monitor the weekly
+   scheduled run.
+5. Confirm the run records `restore_drill_passed`, measured `rpoMinutes`,
+   measured `rtoMinutes`, migration count, representative table counts, wallet
+   decrypt sample count, and queue summary. Treat `restore_drill_failed` or a
+   stale-backup error as a production-severity backup alert.
+6. Confirm teardown completed and the isolated database/Redis target no longer
+   accepts connections. If teardown fails, revoke credentials and delete the
+   target manually before closing the ticket.
+7. Attach the redacted workflow output and teardown evidence to the evidence
+   store, then rotate any temporary recovery credentials used by the drill.
+
+Incident invocation follows the same workflow with the failing environment
+removed from service first. Restore into a new database, validate it with
+`db:verify-restore`, point API and worker `DATABASE_URL` at the validated target,
+then resume traffic. Never overwrite the failed database before reconciliation
+is complete.
