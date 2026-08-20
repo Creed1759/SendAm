@@ -9,6 +9,7 @@ const other = StellarSdk.Keypair.random();
 const rows = new Map();
 const sessions = [];
 let currentSession;
+let sessionCreateError;
 const user = { id: 'user-1', phoneNumber: '+2348000000001' };
 
 const prisma = {
@@ -25,9 +26,21 @@ const prisma = {
       ? { userId: user.id, user } : null
   ) },
   restSession: {
-    create: async ({ data }) => { sessions.push(data); },
+    create: async ({ data }) => {
+      if (sessionCreateError) throw sessionCreateError;
+      sessions.push(data);
+    },
     findUnique: async ({ where }) => currentSession?.tokenHash === where.tokenHash ? currentSession : null,
     update: async () => null,
+  },
+  $transaction: async (fn) => {
+    const consumed = new Map([...rows].map(([key, row]) => [key, row.consumedAt]));
+    try {
+      return await fn(prisma);
+    } catch (error) {
+      for (const [key, value] of consumed) rows.get(key).consumedAt = value;
+      throw error;
+    }
   },
 };
 
@@ -49,7 +62,9 @@ inject('config/env', {
 
 const auth = require('../src/services/restAuth.service');
 
-beforeEach(() => { rows.clear(); sessions.length = 0; currentSession = null; });
+beforeEach(() => {
+  rows.clear(); sessions.length = 0; currentSession = null; sessionCreateError = null;
+});
 
 const signedChallenge = async () => {
   const { transaction } = await auth.createChallenge(client.publicKey());
@@ -72,6 +87,15 @@ test('a signed challenge is single use', async () => {
   const signed = await signedChallenge();
   await auth.verifyChallenge(signed);
   await assert.rejects(auth.verifyChallenge(signed), /already used/);
+});
+
+test('session creation failure rolls challenge consumption back for a safe retry', async () => {
+  const signed = await signedChallenge();
+  sessionCreateError = new Error('database unavailable');
+  await assert.rejects(auth.verifyChallenge(signed), /database unavailable/);
+  assert.equal([...rows.values()][0].consumedAt, null);
+  sessionCreateError = null;
+  assert.equal((await auth.verifyChallenge(signed)).user.id, user.id);
 });
 
 test('expired stored challenges fail', async () => {

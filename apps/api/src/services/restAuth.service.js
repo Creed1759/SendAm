@@ -71,17 +71,6 @@ const verifyChallenge = async (signedTransaction) => {
   }
 
   const challengeHash = challengeDigest(signedTransaction);
-  const consumed = await prisma.sep10Challenge.updateMany({
-    where: {
-      challengeHash,
-      account: challenge.clientAccountID,
-      consumedAt: null,
-      expiresAt: { gt: new Date() },
-    },
-    data: { consumedAt: new Date() },
-  });
-  if (consumed.count !== 1) throw new Error('Challenge is expired, unknown, or already used');
-
   const wallet = await prisma.wallet.findFirst({
     where: { publicKey: challenge.clientAccountID, network: config.stellar.network },
     include: { user: true },
@@ -90,8 +79,20 @@ const verifyChallenge = async (signedTransaction) => {
 
   const token = crypto.randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + settings.sessionTtlMinutes * 60 * 1000);
-  await prisma.restSession.create({
-    data: { userId: wallet.userId, account: challenge.clientAccountID, tokenHash: hash(token), expiresAt },
+  await prisma.$transaction(async (tx) => {
+    const consumed = await tx.sep10Challenge.updateMany({
+      where: {
+        challengeHash,
+        account: challenge.clientAccountID,
+        consumedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      data: { consumedAt: new Date() },
+    });
+    if (consumed.count !== 1) throw new Error('Challenge is expired, unknown, or already used');
+    await tx.restSession.create({
+      data: { userId: wallet.userId, account: challenge.clientAccountID, tokenHash: hash(token), expiresAt },
+    });
   });
   return { token, expiresAt, user: wallet.user, account: challenge.clientAccountID };
 };
