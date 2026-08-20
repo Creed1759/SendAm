@@ -6,12 +6,9 @@ const { enforceTransactionPolicy } = require('../compliance/compliance.service')
 const { markTransactionFailed } = require('./markFailed');
 const prisma = require('../common/prisma');
 const { withIdAlias } = require('../common/records');
+const { assertValidAmount, percentage } = require('../utils/money');
 
-const calculateFee = (amount) => {
-  const parsed = Number(amount);
-  if (!Number.isFinite(parsed)) return '0';
-  return (parsed * 0.01).toFixed(2);
-};
+const calculateFee = (amount, asset = 'XLM') => percentage(assertValidAmount(amount, asset), asset, 100);
 
 const buildReceipt = ({ transaction }) => {
   return {
@@ -52,11 +49,13 @@ const executePayment = async ({
   const effectiveAsset = asset || NATIVE_ASSET;
   const effectiveRouteType = routeType
     || (sourceCountry && destinationCountry && sourceCountry !== destinationCountry ? 'cross_border' : 'domestic');
+  const normalizedAmount = assertValidAmount(amount, effectiveAsset);
 
   const { quote, transaction } = await (prisma.$transaction ? prisma.$transaction(async (tx) => {
     const comp = await enforceTransactionPolicy({
       user: senderUser,
-      amount,
+      amount: normalizedAmount,
+      asset: effectiveAsset,
       routeType: effectiveRouteType,
       destinationCountry,
       tx,
@@ -65,7 +64,7 @@ const executePayment = async ({
       userId: senderUser.id,
       sourceCurrency: effectiveAsset,
       targetCurrency: effectiveAsset,
-      sourceAmount: amount,
+      sourceAmount: normalizedAmount,
       route: rail,
       provider: rail,
     });
@@ -73,7 +72,7 @@ const executePayment = async ({
       data: {
         userId: senderUser.id,
         type: 'send',
-        amount: String(amount),
+        amount: normalizedAmount,
         asset: effectiveAsset,
         recipientPhoneNumber,
         destination,
@@ -82,7 +81,7 @@ const executePayment = async ({
         quoteId: q.id,
         status: 'processing',
         metadata: {
-          fee: calculateFee(amount),
+          fee: calculateFee(normalizedAmount, effectiveAsset),
           userHiddenRail: true,
           riskScore: comp.riskScore,
         },
@@ -92,7 +91,8 @@ const executePayment = async ({
   }) : (async () => {
     const comp = await enforceTransactionPolicy({
       user: senderUser,
-      amount,
+      amount: normalizedAmount,
+      asset: effectiveAsset,
       routeType: effectiveRouteType,
       destinationCountry,
       tx: prisma,
@@ -101,7 +101,7 @@ const executePayment = async ({
       userId: senderUser.id,
       sourceCurrency: effectiveAsset,
       targetCurrency: effectiveAsset,
-      sourceAmount: amount,
+      sourceAmount: normalizedAmount,
       route: rail,
       provider: rail,
     });
@@ -109,7 +109,7 @@ const executePayment = async ({
       data: {
         userId: senderUser.id,
         type: 'send',
-        amount: String(amount),
+        amount: normalizedAmount,
         asset: effectiveAsset,
         recipientPhoneNumber,
         destination,
@@ -118,7 +118,7 @@ const executePayment = async ({
         quoteId: q.id,
         status: 'processing',
         metadata: {
-          fee: calculateFee(amount),
+          fee: calculateFee(normalizedAmount, effectiveAsset),
           userHiddenRail: true,
           riskScore: comp.riskScore,
         },
@@ -131,7 +131,7 @@ const executePayment = async ({
 
   try {
     const wallet = await walletService.createOrGetWallet({ user: senderUser });
-    const result = await walletService.submitPayment({ wallet, destination, amount, asset: effectiveAsset });
+    const result = await walletService.submitPayment({ wallet, destination, amount: normalizedAmount, asset: effectiveAsset });
     activeTransaction = await prisma.transaction.update({
       where: { id: activeTransaction.id },
       data: {

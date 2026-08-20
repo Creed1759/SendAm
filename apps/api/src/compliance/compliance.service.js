@@ -2,12 +2,13 @@ const config = require('../config/env');
 const prisma = require('../common/prisma');
 const logger = require('../utils/logger');
 const smileId = require('./smileId.provider');
+const { assertValidAmount, add, compare } = require('../utils/money');
 
 const tierLimits = {
   0: { daily: 0, single: 0 },
-  1: { daily: Number(process.env.TIER_1_DAILY_LIMIT || 50000), single: Number(process.env.TIER_1_SINGLE_LIMIT || 20000) },
-  2: { daily: Number(process.env.TIER_2_DAILY_LIMIT || 500000), single: Number(process.env.TIER_2_SINGLE_LIMIT || 200000) },
-  3: { daily: Number(process.env.TIER_3_DAILY_LIMIT || 5000000), single: Number(process.env.TIER_3_SINGLE_LIMIT || 1000000) },
+  1: { daily: process.env.TIER_1_DAILY_LIMIT || '50000.00', single: process.env.TIER_1_SINGLE_LIMIT || '20000.00' },
+  2: { daily: process.env.TIER_2_DAILY_LIMIT || '500000.00', single: process.env.TIER_2_SINGLE_LIMIT || '200000.00' },
+  3: { daily: process.env.TIER_3_DAILY_LIMIT || '5000000.00', single: process.env.TIER_3_SINGLE_LIMIT || '1000000.00' },
 };
 
 const SANCTIONS_BLOCKED_COUNTRIES = new Set(['KP', 'IR', 'SY', 'CU', 'SD', 'SDN']);
@@ -185,10 +186,10 @@ const processSmileIdCallback = async (payload) => {
 
 const cryptoHash = (value) => require('crypto').createHash('sha256').update(value).digest('hex');
 
-const calculateRiskScore = ({ amount, routeType, destinationCountry, profileRiskScore = 0 }) => {
+const calculateRiskScore = ({ amount, asset = 'NGN', routeType, destinationCountry, profileRiskScore = 0 }) => {
   let score = 10;
-  if (Number(amount) > 100000) score += 30;
-  if (Number(amount) > 50000) score += 10;
+  if (compare(assertValidAmount(amount, asset), '100000.00', asset) > 0) score += 30;
+  if (compare(assertValidAmount(amount, asset), '50000.00', asset) > 0) score += 10;
   if (routeType === 'cross_border') score += 25;
   if (destinationCountry && destinationCountry !== 'NG') score += 15;
   score += Math.min(Math.max(Number(profileRiskScore) || 0, 0), 30);
@@ -223,10 +224,11 @@ const screenSanctions = ({ destinationCountry, routeType }) => {
   };
 };
 
-const enforceTransactionPolicy = async ({ user, amount, routeType, destinationCountry, tx = prisma }) => {
+const enforceTransactionPolicy = async ({ user, amount, asset = 'NGN', routeType, destinationCountry, tx = prisma }) => {
   const profile = await getOrCreateKycProfile(user);
   const limits = tierLimits[profile.tier] || tierLimits[0];
-  const parsedAmount = Number(amount);
+  const policyAsset = asset;
+  const normalizedAmount = assertValidAmount(amount, policyAsset);
 
   if (profile.status !== 'approved') {
     throw new Error('KYC approval is required before sending money.');
@@ -244,7 +246,7 @@ const enforceTransactionPolicy = async ({ user, amount, routeType, destinationCo
     throw new Error('This account is under sanctions review and cannot send funds until cleared.');
   }
 
-  if (parsedAmount > limits.single) {
+  if (compare(normalizedAmount, limits.single, policyAsset) > 0) {
     throw new Error(`This payment exceeds your tier ${profile.tier} single transaction limit.`);
   }
 
@@ -257,8 +259,8 @@ const enforceTransactionPolicy = async ({ user, amount, routeType, destinationCo
     },
     select: { amount: true },
   });
-  const dailyTotal = recent.reduce((sum, t) => sum + Number(t.amount || 0), 0);
-  if (dailyTotal + parsedAmount > limits.daily) {
+  const dailyTotal = recent.reduce((sum, t) => add(sum, t.amount || '0', policyAsset), '0.00');
+  if (compare(add(dailyTotal, normalizedAmount, policyAsset), limits.daily, policyAsset) > 0) {
     throw new Error(`This payment exceeds your tier ${profile.tier} daily limit.`);
   }
 
@@ -282,7 +284,7 @@ const enforceTransactionPolicy = async ({ user, amount, routeType, destinationCo
     throw new Error(`This payment requires manual compliance review: ${sanctionsResult.reason}`);
   }
 
-  const riskScore = calculateRiskScore({ amount, routeType, destinationCountry, profileRiskScore: updatedProfile.riskScore });
+  const riskScore = calculateRiskScore({ amount: normalizedAmount, asset: policyAsset, routeType, destinationCountry, profileRiskScore: updatedProfile.riskScore });
   if (riskScore >= 80) {
     throw new Error('This payment requires manual compliance review.');
   }
