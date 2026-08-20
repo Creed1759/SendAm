@@ -63,6 +63,11 @@ const add = (left, right, scale) => {
   return round({ units: a + b, scale: alignedScale }, scale);
 };
 
+const subtract = (left, right, scale) => {
+  const [a, b, alignedScale] = align(parseDecimal(left, { allowExcessPrecision: true }), parseDecimal(right, { allowExcessPrecision: true }));
+  return round({ units: a - b, scale: alignedScale }, scale);
+};
+
 const multiply = (left, right, scale, mode = ROUND_HALF_UP) => {
   const a = parseDecimal(left, { allowExcessPrecision: true });
   const b = parseDecimal(right, { allowExcessPrecision: true });
@@ -78,4 +83,4 @@ const round = (decimal, scale, mode = ROUND_HALF_UP) => {
   return formatUnits(quotient, scale);
 };
 
-module.exports = { ASSET_POLICIES, ROUND_HALF_UP, ROUND_DOWN, policyFor, parseDecimal, normalizeAmount, compare, add, multiply, round, formatUnits };
+module.exports = { ASSET_POLICIES, ROUND_HALF_UP, ROUND_DOWN, policyFor, parseDecimal, normalizeAmount, compare, add, subtract, multiply, round, formatUnits };

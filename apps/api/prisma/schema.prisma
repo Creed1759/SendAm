@@ -221,7 +221,7 @@ model Quote {
   targetCurrency String
   sourceAmount   String
   targetAmount   String?
-  rate           Float?
+  rate           String?
   fee            String?
   provider       String?
   route          String?
