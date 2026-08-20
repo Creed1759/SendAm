@@ -8,6 +8,19 @@
     "apps/*",
     "packages/*"
   ],
+  "overrides": {
+    "@testing-library/react": {
+      "react-dom": "^19.2.6"
+    },
+    "react-router-dom": {
+      "react": "^19.2.6",
+      "react-dom": "^19.2.6"
+    },
+    "react-router": {
+      "react": "^19.2.6",
+      "react-dom": "^19.2.6"
+    }
+  },
   "scripts": {
     "dev:api": "npm run dev --workspace=apps/api",
     "dev:worker": "npm run dev:worker --workspace=apps/api",
@@ -19,6 +32,7 @@
     "build:admin": "npm run build --workspace=apps/admin",
     "lint": "npm run lint --workspace=apps/api && npm run lint --workspace=apps/landing && npm run lint --workspace=apps/admin",
     "test": "npm run test --workspace=apps/api",
+    "test:landing": "npm run test --workspace=apps/landing",
     "install:all": "npm install"
   }
 }

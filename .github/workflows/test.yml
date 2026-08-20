@@ -114,3 +114,17 @@ jobs:
       # check and blocks the merge, exactly like a failing test.
       - run: npm run build:landing
       - run: npm run build:admin
+
+  landing-tests:
+    name: Landing tests & accessibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # Component/smoke tests plus jest-axe accessibility checks for the
+      # rendered home page. No live services required (jsdom + MemoryRouter).
+      - run: npm run test:landing
