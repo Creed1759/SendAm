@@ -2,7 +2,7 @@ const config = require('../config/env');
 const prisma = require('../common/prisma');
 const logger = require('../utils/logger');
 const smileId = require('./smileId.provider');
-const { assertValidAmount, add, compare } = require('../utils/money');
+const { assertValidAmount, add, compare, formatUnits, getAssetRule } = require('../utils/money');
 
 const tierLimits = {
   0: { daily: 0, single: 0 },
@@ -254,12 +254,14 @@ const enforceTransactionPolicy = async ({ user, amount, asset = 'NGN', routeType
   const recent = await tx.transaction.findMany({
     where: {
       userId: user.id,
+      asset: policyAsset,
       status: { in: ['success', 'processing', 'pending'] },
       createdAt: { gte: since },
     },
-    select: { amount: true },
+    select: { amount: true, asset: true },
   });
-  const dailyTotal = recent.reduce((sum, t) => add(sum, t.amount || '0', policyAsset), '0.00');
+  const zeroAmount = formatUnits(0n, getAssetRule(policyAsset).precision);
+  const dailyTotal = recent.reduce((sum, t) => add(sum, t.amount || zeroAmount, policyAsset), zeroAmount);
   if (compare(add(dailyTotal, normalizedAmount, policyAsset), limits.daily, policyAsset) > 0) {
     throw new Error(`This payment exceeds your tier ${profile.tier} daily limit.`);
   }
