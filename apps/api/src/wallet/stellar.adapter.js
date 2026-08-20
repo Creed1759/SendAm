@@ -4,6 +4,7 @@ const { server, StellarSdk } = require("../config/stellar");
 const axios = require("axios");
 const logger = require("../utils/logger");
 const config = require("../config/env");
+const { normalizeAmount } = require("../utils/money");
 
 const chain = "stellar";
 
@@ -167,10 +168,7 @@ const submitPayment = async ({
       throw new Error("Destination must be a valid Stellar public key.");
     }
 
-    const parsedAmount = Number(amount);
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      throw new Error("Amount must be greater than zero.");
-    }
+    const settlementAmount = normalizeAmount(amount, asset);
 
     const sourceKeypair = StellarSdk.Keypair.fromSecret(secretKey);
     const sourcePublicKey = sourceKeypair.publicKey();
@@ -202,7 +200,7 @@ const submitPayment = async ({
           StellarSdk.Operation.payment({
             destination,
             asset: resolveAsset(asset),
-            amount: amount.toString(),
+            amount: settlementAmount,
           }),
         )
         .setTimeout(30)
