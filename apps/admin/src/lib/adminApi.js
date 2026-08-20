@@ -67,3 +67,13 @@ export const getAdminSystemHealth = async () => {
   const { data } = await api.get('/admin/system-health');
   return data;
 };
+
+export const approveKyc = async (id) => {
+  const { data } = await api.post(`/admin/kyc/${id}/approve`);
+  return data;
+};
+
+export const rejectKyc = async (id) => {
+  const { data } = await api.post(`/admin/kyc/${id}/reject`);
+  return data;
+};
