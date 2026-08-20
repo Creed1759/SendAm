@@ -4,10 +4,10 @@ const logger = require('../utils/logger');
 const smileId = require('./smileId.provider');
 
 const tierLimits = {
-  0: { daily: 0, single: 0 },
-  1: { daily: Number(process.env.TIER_1_DAILY_LIMIT || 50000), single: Number(process.env.TIER_1_SINGLE_LIMIT || 20000) },
-  2: { daily: Number(process.env.TIER_2_DAILY_LIMIT || 500000), single: Number(process.env.TIER_2_SINGLE_LIMIT || 200000) },
-  3: { daily: Number(process.env.TIER_3_DAILY_LIMIT || 5000000), single: Number(process.env.TIER_3_SINGLE_LIMIT || 1000000) },
+  0: { daily: '0', single: '0' },
+  1: { daily: process.env.TIER_1_DAILY_LIMIT || '50000', single: process.env.TIER_1_SINGLE_LIMIT || '20000' },
+  2: { daily: process.env.TIER_2_DAILY_LIMIT || '500000', single: process.env.TIER_2_SINGLE_LIMIT || '200000' },
+  3: { daily: process.env.TIER_3_DAILY_LIMIT || '5000000', single: process.env.TIER_3_SINGLE_LIMIT || '1000000' },
 };
 
 const SANCTIONS_BLOCKED_COUNTRIES = new Set(['KP', 'IR', 'SY', 'CU', 'SD', 'SDN']);
