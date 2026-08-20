@@ -50,6 +50,26 @@ module.exports = {
   redis: {
     url: process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL,
   },
+  // Background worker capacity. `validateWorkerEnv` requires all of these, and
+  // `queues/queue.service.js` passes concurrency/lockDuration straight to
+  // BullMQ, so the worker cannot start without them.
+  //
+  // Defaults are capacity settings, not arbitrary numbers — see
+  // docs/LOAD-TESTING.md for how to re-derive them for your hardware:
+  //   concurrency     jobs processed in parallel per worker process. Each job
+  //                   holds a Prisma connection for part of its life, so this
+  //                   must stay below the per-process database pool or jobs
+  //                   queue on connections instead of doing work.
+  //   lockDurationMs  how long a job may run before BullMQ assumes the worker
+  //                   died and lets another take it. Must exceed the slowest
+  //                   realistic job — a Horizon submission plus retries — or
+  //                   the same payment gets processed twice.
+  worker: {
+    concurrency: Number(process.env.WORKER_CONCURRENCY || 5),
+    lockDurationMs: Number(process.env.WORKER_LOCK_DURATION_MS || 30000),
+    heartbeatIntervalMs: Number(process.env.WORKER_HEARTBEAT_INTERVAL_MS || 60000),
+    shutdownTimeoutMs: Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS || 30000),
+  },
   observability: {
     serviceName: process.env.SERVICE_NAME || 'sendam-api',
     release: process.env.RELEASE_SHA,
