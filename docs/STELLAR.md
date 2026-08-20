@@ -144,6 +144,39 @@ If a mainnet deployment needs to be rolled back:
 - **Explorer** — receipts link to [stellar.expert](https://stellar.expert);
   paste any tx hash or account there while debugging.
 
+## SEP-10 REST authentication
+
+REST clients authenticate ownership of a Stellar account; they never establish
+identity with a phone number. WhatsApp remains a separate trusted path: Meta's
+webhook signature authenticates the transport and the verified sender number is
+the customer identity. A REST session cannot select or override that identity.
+
+1. `GET /api/auth/challenge?account=G...` returns a short-lived SEP-10 challenge.
+2. The wallet signs it and posts the XDR as `transaction` to `/api/auth/token`.
+3. The response is a random, 15-minute bearer token; only its hash is stored.
+4. Use it for wallet, PIN, and KYC routes. `/api/auth/logout` revokes it.
+
+Challenges are consumed atomically. Expired, replayed, malformed, wrong-signer,
+wrong-domain, and wrong-network challenges fail. Auth endpoints allow 10 attempts
+per IP per minute, and important outcomes are recorded in `AuditLog`.
+
+### Configuration, rollout, and recovery
+
+Use a dedicated unfunded key for `STELLAR_AUTH_SIGNING_KEY`. Set
+`STELLAR_HOME_DOMAIN` to the domain publishing `stellar.toml` and
+`STELLAR_WEB_AUTH_DOMAIN` to the exact API host; its `WEB_AUTH_ENDPOINT` and
+`SIGNING_KEY` must agree. Optional limits are
+`STELLAR_AUTH_CHALLENGE_TTL_SECONDS` (30-900) and `REST_SESSION_TTL_MINUTES`
+(1-60). Deploy the database migration and domain configuration before enabling
+`ENABLE_WALLET_REST_API`. The flag is an operational kill switch, not auth.
+
+Monitor `auth.verification.failed` audit events by IP and reason, HTTP 401/429
+rates, and session creation volume. During an incident, disable the REST flag
+and revoke active sessions with
+`UPDATE "RestSession" SET "revokedAt" = NOW() WHERE "revokedAt" IS NULL`.
+Rotate the signing key and `stellar.toml` together. Rotation invalidates open
+challenges; revoke sessions explicitly if compromise is suspected.
+
 ## Further reading
 
 - [Stellar developer docs](https://developers.stellar.org/docs)

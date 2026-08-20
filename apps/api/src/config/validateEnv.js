@@ -46,6 +46,19 @@ const validateEnv = (config) => {
     }
   }
 
+  if (config.features?.walletRestApi) {
+    const auth = config.stellar?.auth || {};
+    if (!auth.signingKey) problems.push('STELLAR_AUTH_SIGNING_KEY must be set when the wallet REST API is enabled.');
+    if (!auth.homeDomain) problems.push('STELLAR_HOME_DOMAIN must be set when the wallet REST API is enabled.');
+    if (!auth.webAuthDomain) problems.push('STELLAR_WEB_AUTH_DOMAIN must be set when the wallet REST API is enabled.');
+    if (!Number.isFinite(auth.challengeTtlSeconds) || auth.challengeTtlSeconds < 30 || auth.challengeTtlSeconds > 900) {
+      problems.push('STELLAR_AUTH_CHALLENGE_TTL_SECONDS must be between 30 and 900.');
+    }
+    if (!Number.isFinite(auth.sessionTtlMinutes) || auth.sessionTtlMinutes < 1 || auth.sessionTtlMinutes > 60) {
+      problems.push('REST_SESSION_TTL_MINUTES must be between 1 and 60.');
+    }
+  }
+
   if (problems.length > 0) {
     throw new Error(`Invalid configuration:\n  - ${problems.join('\n  - ')}`);
   }

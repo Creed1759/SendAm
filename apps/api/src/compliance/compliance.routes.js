@@ -3,10 +3,12 @@ const router = express.Router();
 const controller = require('./compliance.controller');
 const requireAdmin = require('../middlewares/requireAdmin');
 const requireRestApiEnabled = require('../middlewares/requireRestApiEnabled');
+const requireRestSession = require('../middlewares/requireRestSession');
 
 router.get('/kyc/:phone', requireAdmin, controller.getProfile);
-router.post('/kyc/start', requireRestApiEnabled, controller.startKyc);
+router.get('/kyc', requireRestApiEnabled, requireRestSession, controller.getOwnProfile);
+router.post('/kyc/start', requireRestApiEnabled, requireRestSession, controller.startKyc);
 router.post('/kyc/:id/review', requireAdmin, controller.reviewKyc);
-router.post('/pin', requireRestApiEnabled, controller.setPin);
+router.post('/pin', requireRestApiEnabled, requireRestSession, controller.setPin);
 
 module.exports = router;

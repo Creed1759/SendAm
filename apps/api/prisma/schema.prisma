@@ -28,6 +28,35 @@ model User {
   voiceCommands VoiceCommand[]
   notifications Notification[]
   quotes        Quote[]
+  restSessions  RestSession[]
+}
+
+model Sep10Challenge {
+  id            String    @id @default(cuid())
+  account       String
+  challengeHash String    @unique
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([account, createdAt])
+  @@index([expiresAt])
+}
+
+model RestSession {
+  id         String    @id @default(cuid())
+  userId     String
+  account    String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
 }
 
 // One row per user per chain — direct custody. `encryptedSecretKey` holds
