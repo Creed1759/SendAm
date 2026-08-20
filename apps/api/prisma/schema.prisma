@@ -171,6 +171,21 @@ model KycProfile {
   @@index([custodyStatus])
 }
 
+// Durable inbox for idempotent KYC callback processing. The unique provider
+// event key makes provider retries safe across processes and deployments.
+model KycWebhookEvent {
+  id              String   @id @default(cuid())
+  provider        String
+  providerEventId String
+  profileId       String?
+  resultCode      String?
+  receivedAt      DateTime @default(now())
+
+  @@unique([provider, providerEventId])
+  @@index([profileId])
+  @@index([receivedAt])
+}
+
 model VoiceCommand {
   id                String   @id @default(cuid())
   userId            String?
@@ -263,7 +278,12 @@ model AdminRole {
 model ProcessedMessage {
   id        String   @id @default(cuid())
   messageId String   @unique
+  status    String   @default("completed")
+  lastError String?
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([status, updatedAt])
 }
 
 model RateLimitHit {

@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const { validateEnv } = require('../src/config/validateEnv');
+const { validateEnv, validateWorkerEnv } = require('../src/config/validateEnv');
 
 const validKey = crypto.randomBytes(32).toString('hex');
 const validSecret = crypto.randomBytes(32).toString('hex');
@@ -16,6 +16,25 @@ const baseConfig = () => ({
     network: 'testnet',
     isMainnet: false,
     usdcIssuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+  },
+});
+
+const productionConfig = () => ({
+  ...baseConfig(),
+  isProduction: true,
+  compliance: { pinPepper: 'pepper' },
+  whatsapp: {
+    token: 'system-user-token',
+    phoneNumberId: 'phone-id',
+    verifyToken: 'verify-token-at-least-32-characters',
+    appSecret: 'app-secret',
+    callbackUrl: 'https://api.example.com/webhook',
+    businessAccountId: 'waba-id',
+    graphApiVersion: 'v99.0',
+  },
+  observability: {
+    metricsToken: 'metrics-token-at-least-32-characters',
+    errorMonitorWebhookUrl: 'https://alerts.example.com/sendam',
   },
 });
 
@@ -70,6 +89,37 @@ test('missing PIN_PEPPER throws in production', () => {
   assert.throws(() => validateEnv(config), /PIN_PEPPER/);
 });
 
+test('production Meta transport requires complete webhook configuration', () => {
+  const config = productionConfig();
+  config.whatsapp = { appSecret: 'app-secret' };
+  assert.throws(() => validateEnv(config), /WHATSAPP_VERIFY_TOKEN/);
+
+  config.whatsapp = productionConfig().whatsapp;
+  assert.doesNotThrow(() => validateEnv(config));
+});
+
+test('production requires metrics authentication and error alert routing', () => {
+  const config = productionConfig();
+  config.observability = {};
+  assert.throws(() => validateEnv(config), /METRICS_TOKEN/);
+  assert.throws(() => validateEnv(config), /ERROR_MONITOR_WEBHOOK_URL/);
+
+  config.observability = productionConfig().observability;
+  assert.doesNotThrow(() => validateEnv(config));
+});
+
+test('production WhatsApp callback URL must use HTTPS', () => {
+  const config = productionConfig();
+  config.whatsapp.callbackUrl = 'http://api.example.com/webhook';
+  assert.throws(() => validateEnv(config), /must use HTTPS/);
+});
+
+test('production error monitor endpoint must use HTTPS', () => {
+  const config = productionConfig();
+  config.observability.errorMonitorWebhookUrl = 'http://alerts.example.com/sendam';
+  assert.throws(() => validateEnv(config), /must use HTTPS/);
+});
+
 test('multiple violations are all reported in one error', () => {
   const config = baseConfig();
   config.encryptionKey = undefined;
@@ -115,4 +165,18 @@ test('testnet with testnet USDC issuer does not throw', () => {
   config.stellar.isMainnet = false;
   config.stellar.usdcIssuer = 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
   assert.doesNotThrow(() => validateEnv(config));
+});
+
+test('worker requires Redis and valid concurrency settings', () => {
+  assert.throws(
+    () => validateWorkerEnv({ redis: {}, worker: { concurrency: 5, lockDurationMs: 30000 } }),
+    /REDIS_URL/,
+  );
+  assert.throws(
+    () => validateWorkerEnv({ redis: { url: 'redis://localhost' }, worker: { concurrency: 0, lockDurationMs: 30000 } }),
+    /WORKER_CONCURRENCY/,
+  );
+  assert.doesNotThrow(
+    () => validateWorkerEnv({ redis: { url: 'redis://localhost' }, worker: { concurrency: 5, lockDurationMs: 30000 } }),
+  );
 });

@@ -26,8 +26,39 @@ const validateEnv = (config) => {
     problems.push('WHATSAPP_APP_SECRET must be set in production — without it, inbound webhook signatures cannot be verified.');
   }
 
+  if (config.isProduction && config.messageTransport === 'meta') {
+    const requiredWhatsApp = [
+      ['WHATSAPP_TOKEN', config.whatsapp?.token],
+      ['WHATSAPP_PHONE_NUMBER_ID', config.whatsapp?.phoneNumberId],
+      ['WHATSAPP_VERIFY_TOKEN', config.whatsapp?.verifyToken],
+      ['WHATSAPP_CALLBACK_URL', config.whatsapp?.callbackUrl],
+      ['WHATSAPP_BUSINESS_ACCOUNT_ID', config.whatsapp?.businessAccountId],
+      ['META_GRAPH_API_VERSION', config.whatsapp?.graphApiVersion],
+    ];
+    for (const [name, value] of requiredWhatsApp) {
+      if (!value) problems.push(`${name} must be set for the production Meta WhatsApp webhook.`);
+    }
+    if (config.whatsapp?.callbackUrl && !config.whatsapp.callbackUrl.startsWith('https://')) {
+      problems.push('WHATSAPP_CALLBACK_URL must use HTTPS in production.');
+    }
+    if (config.whatsapp?.verifyToken && config.whatsapp.verifyToken.length < 32) {
+      problems.push('WHATSAPP_VERIFY_TOKEN must be at least 32 characters in production.');
+    }
+  }
+
   if (config.isProduction && !config.compliance?.pinPepper) {
     problems.push('PIN_PEPPER must be set in production for secure PIN hashing.');
+  }
+
+  if (config.isProduction) {
+    if (!config.observability?.metricsToken || config.observability.metricsToken.length < 32) {
+      problems.push('METRICS_TOKEN must be at least 32 characters in production.');
+    }
+    if (!config.observability?.errorMonitorWebhookUrl) {
+      problems.push('ERROR_MONITOR_WEBHOOK_URL must be set in production.');
+    } else if (!config.observability.errorMonitorWebhookUrl.startsWith('https://')) {
+      problems.push('ERROR_MONITOR_WEBHOOK_URL must use HTTPS in production.');
+    }
   }
 
   if (!['meta', 'sim'].includes(config.messageTransport)) {
@@ -64,4 +95,16 @@ const validateEnv = (config) => {
   }
 };
 
-module.exports = { validateEnv };
+const validateWorkerEnv = (config) => {
+  const problems = [];
+  if (!config.redis?.url) problems.push('REDIS_URL or UPSTASH_REDIS_URL must be set for the background worker.');
+  if (!Number.isInteger(config.worker?.concurrency) || config.worker.concurrency < 1) {
+    problems.push('WORKER_CONCURRENCY must be a positive integer.');
+  }
+  if (!Number.isFinite(config.worker?.lockDurationMs) || config.worker.lockDurationMs < 5000) {
+    problems.push('WORKER_LOCK_DURATION_MS must be at least 5000.');
+  }
+  if (problems.length) throw new Error(`Invalid worker configuration:\n  - ${problems.join('\n  - ')}`);
+};
+
+module.exports = { validateEnv, validateWorkerEnv };

@@ -27,6 +27,9 @@ module.exports = {
     // Meta App Secret, used to verify the X-Hub-Signature-256 header on
     // inbound webhook POSTs so forged events can't drive money movement.
     appSecret: process.env.WHATSAPP_APP_SECRET,
+    callbackUrl: process.env.WHATSAPP_CALLBACK_URL,
+    businessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID,
+    graphApiVersion: process.env.META_GRAPH_API_VERSION,
   },
   // Per-user transfer guardrails. Amounts are in XLM. Defaults are sane for a
   // testnet MVP; tighten via env before handling real value.
@@ -46,6 +49,14 @@ module.exports = {
   },
   redis: {
     url: process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL,
+  },
+  observability: {
+    serviceName: process.env.SERVICE_NAME || 'sendam-api',
+    release: process.env.RELEASE_SHA,
+    metricsToken: process.env.METRICS_TOKEN,
+    errorMonitorWebhookUrl: process.env.ERROR_MONITOR_WEBHOOK_URL,
+    errorMonitorToken: process.env.ERROR_MONITOR_TOKEN,
+    errorMonitorTimeoutMs: Number(process.env.ERROR_MONITOR_TIMEOUT_MS || 3000),
   },
   storage: {
     r2Endpoint: process.env.CLOUDFLARE_R2_ENDPOINT,
@@ -80,6 +91,14 @@ module.exports = {
     smileId: {
       partnerId: process.env.SMILE_ID_PARTNER_ID,
       apiKey: process.env.SMILE_ID_API_KEY,
+      callbackUrl: process.env.SMILE_ID_CALLBACK_URL,
+      baseUrl: process.env.SMILE_ID_BASE_URL || (
+        process.env.NODE_ENV === 'production'
+          ? 'https://api.smileidentity.com/v2/verify_async'
+          : 'https://testapi.smileidentity.com/v2/verify_async'
+      ),
+      timeoutMs: Number(process.env.SMILE_ID_TIMEOUT_MS || 10000),
+      callbackToleranceMs: Number(process.env.SMILE_ID_CALLBACK_TOLERANCE_SEC || 300) * 1000,
     },
     dojah: {
       appId: process.env.DOJAH_APP_ID,

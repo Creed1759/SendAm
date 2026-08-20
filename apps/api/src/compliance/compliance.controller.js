@@ -1,5 +1,9 @@
 const { sendSuccess, sendError } = require('../utils/response');
-const { getOrCreateKycProfile } = require('./compliance.service');
+const {
+  getOrCreateKycProfile,
+  startKycVerification,
+  processSmileIdCallback,
+} = require('./compliance.service');
 const { hashPin } = require('./pin.service');
 const prisma = require('../common/prisma');
 const { withIdAlias } = require('../common/records');
@@ -33,8 +37,22 @@ const startKyc = async (req, res, next) => {
         providerReference: req.body.providerReference,
       },
     });
-    return sendSuccess(res, withIdAlias(profile), 'KYC started');
+    return sendSuccess(res, withIdAlias(profile), 'KYC started', 202);
   } catch (error) {
+    if (error.statusCode) return sendError(res, error.message, error.statusCode);
+    next(error);
+  }
+};
+
+const smileIdCallback = async (req, res, next) => {
+  try {
+    const result = await processSmileIdCallback(req.body);
+    return sendSuccess(res, null, result.duplicate ? 'Callback already processed' : 'Callback processed');
+  } catch (error) {
+    // A signed but unmatched callback is acknowledged so provider retries do
+    // not amplify an operator-recovery condition.
+    if (error.statusCode === 202) return sendSuccess(res, null, error.message, 202);
+    if (error.statusCode) return sendError(res, error.message, error.statusCode);
     next(error);
   }
 };
@@ -101,4 +119,5 @@ module.exports = {
   startKyc,
   reviewKyc,
   setPin,
+  smileIdCallback,
 };
