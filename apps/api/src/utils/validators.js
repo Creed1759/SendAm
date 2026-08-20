@@ -6,9 +6,15 @@ const isValidPhoneNumber = (phone) => {
   return typeof phone === 'string' && phone.trim().length > 5;
 };
 
-const isValidAmount = (amount) => {
-  const parsed = Number(amount);
-  return Number.isFinite(parsed) && parsed > 0;
+const { assertValidAmount } = require('./money');
+
+const isValidAmount = (amount, asset = 'XLM') => {
+  try {
+    assertValidAmount(amount, asset);
+    return true;
+  } catch (_error) {
+    return false;
+  }
 };
 
 module.exports = {

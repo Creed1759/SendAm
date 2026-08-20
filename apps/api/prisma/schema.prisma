@@ -61,9 +61,11 @@ model Transaction {
   id                    String   @id @default(cuid())
   userId                String
   type                  String
+  /// Canonical decimal string validated by src/utils/money.js; never serialize monetary values as floats.
   amount                String
   asset                 String   @default("USDC")
   fiatCurrency          String?
+  /// Canonical decimal string for configured fiat currencies.
   fiatAmount            String?
   rail                  String   @default("unknown")
   routeType             String   @default("unknown")
@@ -219,9 +221,13 @@ model Quote {
   userId         String?
   sourceCurrency String
   targetCurrency String
+  /// Canonical decimal string in sourceCurrency precision.
   sourceAmount   String
+  /// Canonical decimal string in targetCurrency precision.
   targetAmount   String?
-  rate           Float?
+  /// Decimal string exchange rate; do not use Float for quote math.
+  rate           String?
+  /// Canonical decimal string in sourceCurrency precision.
   fee            String?
   provider       String?
   route          String?
