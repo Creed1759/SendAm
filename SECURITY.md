@@ -54,8 +54,9 @@ Already in place:
 - **Transfer guardrails**: per-transaction cap plus rolling 24h amount and count limits, with an upfront balance check.
 - **Compliance review workflow**: KYC approval, sanctions screening, and custody review gates are now represented in the backend policy and persisted in `KycProfile`.
 - **Audit logging** for wallet creation and payment execution is already present; the compliance workflow records review decisions and can be extended to log any manual approvals or denials.
-- **CORS allowlist** enforced in production and **Mongo-backed rate limiting** shared across instances (per-IP REST, per-sender WhatsApp).
+- **CORS allowlist** enforced in production and **PostgreSQL-backed rate limiting** shared across instances (per-IP REST, per-sender WhatsApp). Rate limit counters live in the `RateLimitHit` table via Prisma — see [`apps/api/src/middlewares/postgresRateStore.js`](apps/api/src/middlewares/postgresRateStore.js) and [`apps/api/src/services/rateLimit.service.js`](apps/api/src/services/rateLimit.service.js).
 - The **unauthenticated REST wallet API** is disabled in production by default (`ENABLE_WALLET_REST_API`); WhatsApp is the signature-verified product surface.
+- **SEP-10 REST authentication** is built: REST clients prove wallet ownership via a Stellar key challenge before accessing wallet, PIN, and KYC routes. See [`docs/STELLAR.md`](docs/STELLAR.md#sep-10-rest-authentication).
 
 ## Compliance Assumptions and Threat Boundaries
 
@@ -76,7 +77,8 @@ Before any real-money launch:
 
 - Migrate from Stellar Testnet to mainnet with a vetted deployment.
 - Replace the single static `ENCRYPTION_KEY` with managed key management (KMS/HSM) and key rotation.
-- Add per-user authentication to the REST wallet API (or keep it disabled).
+- Add per-user authentication to the REST wallet API (or keep it disabled). The SEP-10 auth service is built; it needs deployment configuration (`ENABLE_WALLET_REST_API=true`, `STELLAR_AUTH_SIGNING_KEY`, domain variables).
+- Build real per-user authentication for `POST /api/compliance/pin` and `POST /api/compliance/kyc/start` — right now they rely on the same phone-number identity model and share the `ENABLE_WALLET_REST_API` flag.
 - Replace the single shared admin password with real admin accounts and roles.
 - Add audit logging for sensitive actions, plus monitoring and alerting.
 - Complete legal, compliance, KYC, AML, and custody review where required.
