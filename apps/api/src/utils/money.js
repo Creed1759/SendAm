@@ -8,6 +8,7 @@ const ASSET_RULES = Object.freeze({
 });
 
 const DECIMAL_RE = /^(?:0|[1-9]\d*)(?:\.(\d+))?$/;
+const EXPONENTIAL_RE = /^([+-]?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/;
 
 const getAssetRule = (asset = 'XLM') => {
   const code = String(asset || '').trim().toUpperCase();
@@ -47,14 +48,36 @@ const assertValidAmount = (value, asset = 'XLM') => {
   return formatUnits(units, rule.precision);
 };
 
-const decimalToRatio = (value) => {
+const expandExponentialDecimal = (value) => {
   const raw = String(value).trim();
-  const sign = raw.startsWith('-') ? -1n : 1n;
-  const normalized = raw.replace(/^-/, '');
-  const match = normalized.match(DECIMAL_RE);
-  if (!match) throw new Error('Rate must be a decimal string.');
+  const match = raw.match(EXPONENTIAL_RE);
+  if (!match) return raw;
+
+  const [, sign, whole, fractional = '', exponentText] = match;
+  const exponent = Number(exponentText);
+  const digits = `${whole}${fractional}`.replace(/^0+(?=\d)/, '');
+  const decimalPlaces = fractional.length - exponent;
+
+  if (decimalPlaces <= 0) {
+    return `${sign}${digits}${'0'.repeat(Math.abs(decimalPlaces))}`;
+  }
+
+  if (decimalPlaces >= digits.length) {
+    return `${sign}0.${'0'.repeat(decimalPlaces - digits.length)}${digits}`;
+  }
+
+  const splitAt = digits.length - decimalPlaces;
+  return `${sign}${digits.slice(0, splitAt)}.${digits.slice(splitAt)}`;
+};
+
+const decimalToRatio = (value) => {
+  const raw = expandExponentialDecimal(value);
+  const match = raw.match(DECIMAL_RE);
+  if (!match) throw new Error('Rate must be a positive decimal string.');
   const fractional = match[1] || '';
-  return { numerator: sign * BigInt(`${normalized.split('.')[0]}${fractional}`), denominator: 10n ** BigInt(fractional.length) };
+  const numerator = BigInt(`${raw.split('.')[0]}${fractional}`);
+  if (numerator <= 0n) throw new Error('Rate must be greater than zero.');
+  return { numerator, denominator: 10n ** BigInt(fractional.length), decimal: raw };
 };
 
 const multiplyRatio = (units, numerator, denominator) => {
@@ -97,4 +120,4 @@ const compare = (left, right, asset) => {
   return a === b ? 0 : a > b ? 1 : -1;
 };
 
-module.exports = { ASSET_RULES, getAssetRule, assertValidAmount, parseUnits, formatUnits, percentage, convert, add, subtract, compare };
+module.exports = { ASSET_RULES, getAssetRule, assertValidAmount, parseUnits, formatUnits, percentage, convert, add, subtract, compare, decimalToRatio, expandExponentialDecimal };
