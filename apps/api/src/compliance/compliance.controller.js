@@ -29,13 +29,9 @@ const getOwnProfile = async (req, res, next) => {
 const startKyc = async (req, res, next) => {
   try {
     const user = req.restUser;
-    const existing = await getOrCreateKycProfile(user);
-    const profile = await prisma.kycProfile.update({
-      where: { id: existing.id },
-      data: {
-        status: 'pending',
-        providerReference: req.body.providerReference,
-      },
+    const profile = await startKycVerification({
+      user,
+      applicant: req.body,
     });
     return sendSuccess(res, withIdAlias(profile), 'KYC started', 202);
   } catch (error) {
