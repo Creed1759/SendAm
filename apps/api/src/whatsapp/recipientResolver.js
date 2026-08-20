@@ -1,8 +1,5 @@
-const { isValidPhoneNumber } = require('../utils/validators');
+const { isValidPhoneNumber, canonicalizePhoneNumber } = require('../utils/validators');
 
-// isValidPhoneNumber() only asks for "a string longer than 5 chars" — which a
-// raw G... address and most contact names also satisfy. Resolution needs a real
-// shape test, otherwise every recipient gets routed through createOrGetWallet.
 const PHONE_SHAPE = /^\+?\d[\d\s-]{4,17}$/;
 const looksLikePhoneNumber = (raw) => PHONE_SHAPE.test(raw) && isValidPhoneNumber(raw);
 
@@ -26,8 +23,9 @@ const createRecipientResolver = ({ prisma, walletService }) => {
 
     // 2. Phone number — create or fetch wallet for that phone number.
     if (walletService && looksLikePhoneNumber(raw)) {
-      const wallet = await walletService.createOrGetWallet({ phoneNumber: raw });
-      return { destination: wallet.publicKey, label: raw };
+      const canonicalPhone = canonicalizePhoneNumber(raw);
+      const wallet = await walletService.createOrGetWallet({ phoneNumber: canonicalPhone });
+      return { destination: wallet.publicKey, label: canonicalPhone };
     }
 
     // 3. Raw address (or an unresolvable name — the confirmation flow's

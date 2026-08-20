@@ -7,10 +7,15 @@ const {
 const { hashPin } = require('./pin.service');
 const prisma = require('../common/prisma');
 const { withIdAlias } = require('../common/records');
+const { canonicalizePhoneNumber, isValidPhoneNumber } = require('../utils/validators');
 
 const getProfile = async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({ where: { phoneNumber: req.params.phone } });
+    if (!isValidPhoneNumber(req.params.phone)) {
+      return sendError(res, 'User not found', 404);
+    }
+    const phone = canonicalizePhoneNumber(req.params.phone);
+    const user = await prisma.user.findUnique({ where: { phoneNumber: phone } });
     if (!user) return sendError(res, 'User not found', 404);
     const profile = await getOrCreateKycProfile(user);
     return sendSuccess(res, withIdAlias(profile));
