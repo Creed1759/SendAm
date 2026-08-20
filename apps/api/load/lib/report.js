@@ -17,7 +17,7 @@ const fmt = (value, unit) => {
   return String(value);
 };
 
-const renderText = ({ scenario, summary, evaluation, queueLag, invariant, meta }) => {
+const renderText = ({ scenario, summary, evaluation, queueLag, resources, invariant, meta }) => {
   const lines = [];
   lines.push('');
   lines.push(`Scenario:    ${scenario.name} — ${scenario.summary}`);
@@ -36,6 +36,20 @@ const renderText = ({ scenario, summary, evaluation, queueLag, invariant, meta }
     lines.push('  Queue lag    depth ' + queueLag.depth + '   oldest ' + fmt(queueLag.oldestJobAgeMs, 'ms'));
   } else {
     lines.push('  Queue lag    not measured — ' + (queueLag?.reason || 'unavailable'));
+  }
+
+  if (resources?.connections?.measured) {
+    const c = resources.connections;
+    lines.push('  DB conns     peak ' + c.peakTotal + '/' + c.maxConnections
+      + ' (' + Math.round(c.utilisation * 100) + '%)   peak active ' + c.peakActive);
+  } else if (resources) {
+    lines.push('  DB conns     not measured — ' + (resources.connections?.reason || 'unavailable'));
+  }
+
+  if (resources?.memory?.measured) {
+    lines.push('  Memory       peak RSS ' + resources.memory.peakMb + 'MB');
+  } else if (resources) {
+    lines.push('  Memory       not measured — ' + (resources.memory?.reason || 'unavailable'));
   }
 
   const statuses = Object.entries(summary.statusCounts);
@@ -57,6 +71,12 @@ const renderText = ({ scenario, summary, evaluation, queueLag, invariant, meta }
   lines.push('  Budget');
   for (const check of evaluation.checks) {
     const status = check.skipped ? 'skip' : (check.passed ? 'pass' : 'FAIL');
+    if (check.limit === null) {
+      // A check that failed because its input was never measured; printing a
+      // comparison against `n/a` would read as a threshold breach.
+      lines.push(`    [${status}] ${pad(check.name, 16)} ${check.reason}`);
+      continue;
+    }
     const comparator = check.name === 'throughput' ? '>=' : '<=';
     lines.push(`    [${status}] ${pad(check.name, 16)} ${fmt(check.actual, check.unit)} ${comparator} ${fmt(check.limit, check.unit)}`);
   }

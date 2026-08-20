@@ -131,20 +131,24 @@ const duplicateStorm = {
 const adminRead = {
   name: 'admin-read',
   summary: 'Admin dashboard reads (stats, users, transactions) under concurrent operators.',
+  requires: ['adminToken'],
   build: ({ url, adminToken }) => {
+    if (!adminToken) {
+      // Measuring the 401 path and calling it an admin-read result would be a
+      // false pass: it exercises routing and the rate limiter, and touches
+      // none of the aggregate queries this scenario exists to size.
+      throw new Error(
+        'admin-read requires LOAD_ADMIN_TOKEN. Without it the endpoints answer 401 and the '
+        + 'run would measure the auth rejection path instead of the admin queries.',
+      );
+    }
     const paths = ['/api/admin/stats', '/api/admin/users', '/api/admin/transactions'];
     return {
       request: async ({ iteration }) => send({
         url: new URL(paths[iteration % paths.length], url),
-        headers: adminToken ? { authorization: `Bearer ${adminToken}` } : {},
-        // Without a token the endpoints correctly answer 401; that still
-        // measures routing, auth middleware and the rate limiter, but the
-        // report flags it so nobody reads it as a database benchmark.
-        acceptStatus: (status) => (adminToken ? status === 200 : status === 401),
+        headers: { authorization: `Bearer ${adminToken}` },
+        acceptStatus: (status) => status === 200,
       }),
-      note: adminToken
-        ? undefined
-        : 'No LOAD_ADMIN_TOKEN set — measuring the auth rejection path, not the admin queries.',
     };
   },
 };
@@ -158,7 +162,98 @@ const healthRead = {
   }),
 };
 
-const SCENARIOS = [webhookBurst, senderSequence, duplicateStorm, adminRead, healthRead];
+/**
+ * The confirmation leg of a transfer: the message that actually moves money.
+ *
+ * A transfer is two inbound messages — "send N to X", then the PIN. The first
+ * only writes a pending intent; the second is the one that debits a wallet and
+ * submits to Stellar, so it is the leg worth measuring and the leg where a
+ * duplicate would be a double spend. Each virtual user drives its own seeded
+ * account so users do not contend on one row's pending-send state, which would
+ * measure lock contention that production does not have.
+ */
+const paymentConfirmation = {
+  name: 'payment-confirmation',
+  summary: 'Transfer confirmation (PIN reply) against seeded funded accounts — the leg that moves money.',
+  requires: ['seed'],
+  build: ({ url, appSecret, seededUsers = [] }) => {
+    if (seededUsers.length === 0) {
+      throw new Error(
+        'payment-confirmation requires seeded accounts. Set DATABASE_URL (and PIN_PEPPER '
+        + 'matching the API) so the harness can create them.',
+      );
+    }
+    const destination = `G${'B'.repeat(55)}`;
+
+    const post = (messageId, from, text) => send({
+      url: new URL('/webhook', url),
+      method: 'POST',
+      appSecret,
+      body: textMessage({ messageId, from, text }),
+      acceptStatus: (status) => status === 200 || status === 503,
+    });
+
+    return {
+      request: async ({ iteration }) => {
+        const user = seededUsers[iteration % seededUsers.length];
+        // Initiate, then confirm. Only the confirmation is timed by the
+        // runner's outer clock; the initiation is setup for it.
+        await post(uniqueMessageId(`pay-init-${iteration}`, iteration), user.phoneNumber,
+          `send 1 XLM to ${destination}`);
+        return post(uniqueMessageId(`pay-confirm-${iteration}`, iteration), user.phoneNumber, user.pin);
+      },
+    };
+  },
+};
+
+/**
+ * Deposit notification fan-out.
+ *
+ * Deposits are not driven by an HTTP endpoint — `jobs/deposits.jobs.js` is an
+ * in-process poller that watches wallets and notifies owners. What load can
+ * shift is the work it has to do: this scenario grows the wallet population
+ * the poller sweeps, then measures the read path that sweep competes with, so
+ * the reported numbers describe the API under a realistic deposit-poller
+ * workload rather than pretending there is an endpoint to hammer.
+ */
+const depositSweep = {
+  name: 'deposit-sweep',
+  summary: 'Balance/history reads while the deposit poller sweeps a seeded wallet population.',
+  requires: ['seed'],
+  build: ({ url, seededUsers = [] }) => {
+    if (seededUsers.length === 0) {
+      throw new Error(
+        'deposit-sweep requires seeded accounts. Set DATABASE_URL (and PIN_PEPPER '
+        + 'matching the API) so the harness can create them.',
+      );
+    }
+    return {
+      request: async ({ iteration }) => {
+        const user = seededUsers[iteration % seededUsers.length];
+        const path = iteration % 2 === 0
+          ? `/api/wallet/${encodeURIComponent(user.phoneNumber)}/transactions`
+          : `/api/wallet/${encodeURIComponent(user.phoneNumber)}/balance`;
+        return send({
+          url: new URL(path, url),
+          // The balance path reaches Horizon, which can legitimately be slow or
+          // unavailable in an isolated environment; a 502/503 from that
+          // boundary is an upstream fact, not a capacity failure of this service.
+          acceptStatus: (status) => status === 200 || status === 502 || status === 503,
+        });
+      },
+    };
+  },
+};
+
+const SCENARIOS = [
+  webhookBurst,
+  senderSequence,
+  duplicateStorm,
+  paymentConfirmation,
+  depositSweep,
+  adminRead,
+  healthRead,
+];
 
 const byName = new Map(SCENARIOS.map((s) => [s.name, s]));
 

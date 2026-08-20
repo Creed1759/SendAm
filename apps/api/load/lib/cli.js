@@ -98,9 +98,17 @@ Safety:
 
 Environment:
   LOAD_TARGET          Base URL, same as --target.
-  LOAD_ADMIN_TOKEN     Bearer token so admin-read measures the real queries.
+  LOAD_ADMIN_TOKEN     Bearer token; required by admin-read.
   WHATSAPP_APP_SECRET  Signs webhook payloads so the real signature path runs.
-  REDIS_URL            Enables queue depth / oldest-job-age sampling.
+  REDIS_URL            Queue depth / oldest-job-age sampling; required by the
+                       queue-backed scenarios.
+  DATABASE_URL         Seeds accounts for the money-movement scenarios and
+                       samples database connection use.
+  PIN_PEPPER           Must match the API's, so seeded PINs verify.
+  LOAD_METRICS_TOKEN   Bearer token for /metrics, enabling memory sampling.
+
+A scenario that cannot measure its subject fails the run rather than reporting
+a pass on a path it never exercised.
 `.trim();
 
 module.exports = { parseArgs, usage, DEFAULTS, UsageError };
