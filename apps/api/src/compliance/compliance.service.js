@@ -185,10 +185,14 @@ const processSmileIdCallback = async (payload) => {
 
 const cryptoHash = (value) => require('crypto').createHash('sha256').update(value).digest('hex');
 
+const { normalizeAmount, parseDecimal, compare, add } = require('../utils/money');
+
+const exceeds = (amount, threshold) => compare(parseDecimal(amount, { allowExcessPrecision: true }), parseDecimal(threshold, { allowExcessPrecision: true })) > 0;
+
 const calculateRiskScore = ({ amount, routeType, destinationCountry, profileRiskScore = 0 }) => {
   let score = 10;
-  if (Number(amount) > 100000) score += 30;
-  if (Number(amount) > 50000) score += 10;
+  if (exceeds(amount, '100000')) score += 30;
+  if (exceeds(amount, '50000')) score += 10;
   if (routeType === 'cross_border') score += 25;
   if (destinationCountry && destinationCountry !== 'NG') score += 15;
   score += Math.min(Math.max(Number(profileRiskScore) || 0, 0), 30);
@@ -226,7 +230,7 @@ const screenSanctions = ({ destinationCountry, routeType }) => {
 const enforceTransactionPolicy = async ({ user, amount, routeType, destinationCountry, tx = prisma }) => {
   const profile = await getOrCreateKycProfile(user);
   const limits = tierLimits[profile.tier] || tierLimits[0];
-  const parsedAmount = Number(amount);
+  const parsedAmount = normalizeAmount(amount, 'XLM');
 
   if (profile.status !== 'approved') {
     throw new Error('KYC approval is required before sending money.');
@@ -244,7 +248,7 @@ const enforceTransactionPolicy = async ({ user, amount, routeType, destinationCo
     throw new Error('This account is under sanctions review and cannot send funds until cleared.');
   }
 
-  if (parsedAmount > limits.single) {
+  if (exceeds(parsedAmount, String(limits.single))) {
     throw new Error(`This payment exceeds your tier ${profile.tier} single transaction limit.`);
   }
 
@@ -257,8 +261,9 @@ const enforceTransactionPolicy = async ({ user, amount, routeType, destinationCo
     },
     select: { amount: true },
   });
-  const dailyTotal = recent.reduce((sum, t) => sum + Number(t.amount || 0), 0);
-  if (dailyTotal + parsedAmount > limits.daily) {
+  const dailyTotal = recent.reduce((sum, t) => add(sum, t.amount || '0', 7), '0.0000000');
+  const projectedTotal = add(dailyTotal, parsedAmount, 7);
+  if (exceeds(projectedTotal, String(limits.daily))) {
     throw new Error(`This payment exceeds your tier ${profile.tier} daily limit.`);
   }
 

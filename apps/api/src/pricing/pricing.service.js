@@ -2,6 +2,7 @@ const axios = require('axios');
 const config = require('../config/env');
 const prisma = require('../common/prisma');
 const { withIdAlias } = require('../common/records');
+const { normalizeAmount, multiply, parseDecimal, formatUnits, policyFor } = require('../utils/money');
 
 const getExchangeRate = async ({ sourceCurrency = 'NGN', targetCurrency = 'USDC' }) => {
   if (sourceCurrency === targetCurrency) return 1;
@@ -18,19 +19,25 @@ const getExchangeRate = async ({ sourceCurrency = 'NGN', targetCurrency = 'USDC'
 
 const createQuote = async ({ userId, sourceCurrency = 'NGN', targetCurrency = 'USDC', sourceAmount, route, provider }) => {
   const rate = await getExchangeRate({ sourceCurrency, targetCurrency });
-  const numericAmount = Number(sourceAmount);
-  const feeAmount = Number.isFinite(numericAmount) ? numericAmount * 0.01 : 0;
-  const targetAmount = rate && Number.isFinite(numericAmount) ? ((numericAmount - feeAmount) * rate).toFixed(6) : undefined;
+  const sourcePolicy = policyFor(sourceCurrency);
+  const targetPolicy = policyFor(targetCurrency);
+  const normalizedSourceAmount = normalizeAmount(sourceAmount, sourceCurrency);
+  const feeAmount = multiply(normalizedSourceAmount, '0.01', sourcePolicy.scale);
+  const netParsed = parseDecimal(normalizedSourceAmount, { allowExcessPrecision: true });
+  const feeParsed = parseDecimal(feeAmount, { allowExcessPrecision: true });
+  const netUnits = netParsed.units - feeParsed.units;
+  const netAmount = formatUnits(netUnits, sourcePolicy.scale);
+  const targetAmount = rate ? multiply(netAmount, String(rate), targetPolicy.scale) : undefined;
 
   const quote = await prisma.quote.create({
     data: {
     userId,
     sourceCurrency,
     targetCurrency,
-    sourceAmount: String(sourceAmount),
+    sourceAmount: normalizedSourceAmount,
     targetAmount,
     rate,
-    fee: feeAmount.toFixed(2),
+    fee: feeAmount,
     provider,
     route,
     expiresAt: new Date(Date.now() + 5 * 60 * 1000),

@@ -81,9 +81,9 @@ const setUpHappyPath = () => {
 // Pure-export unit tests
 // ---------------------------------------------------------------------------
 test('calculateFee: returns 1% of the amount', () => {
-  assert.equal(calculateFee('100'), '1.00');
-  assert.equal(calculateFee('250'), '2.50');
-  assert.equal(calculateFee('0'), '0.00');
+  assert.equal(calculateFee('100'), '1.0000000');
+  assert.equal(calculateFee('250'), '2.5000000');
+  assert.equal(calculateFee('0'), '0');
 });
 
 test('calculateFee: handles non-numeric input gracefully', () => {
