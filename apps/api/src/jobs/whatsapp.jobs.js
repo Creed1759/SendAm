@@ -1,11 +1,17 @@
 const { registerProcessor } = require('../queues/queue.service');
 const { processMessage } = require('../whatsapp/assistant.service');
 const { processVoiceMessage } = require('../voice/voice.service');
+const { withOrdering, createInMemoryOrderingStore } = require('../queues/ordering.service');
+const config = require('../config/env');
 const logger = require('../utils/logger');
 const prisma = require('../common/prisma');
 
-const registerWhatsAppJobs = () => {
-  const worker = registerProcessor('whatsapp-inbound', async (job) => {
+// `orderingStore` is injectable (defaults to a fresh in-memory store) so
+// tests can exercise the ordering gate directly, and so a future
+// multi-process deployment can swap in a shared Redis/Postgres-backed store
+// without touching this file — see apps/api/src/queues/ordering.service.js.
+const registerWhatsAppJobs = ({ orderingStore = createInMemoryOrderingStore() } = {}) => {
+  const processInboundMessage = async (job) => {
     const { from, whatsappName, text, mediaId, messageType, whatsappMessageId } = job.data;
     if (whatsappMessageId) {
       // This update occurs before side effects. If it fails BullMQ retries the
@@ -37,7 +43,19 @@ const registerWhatsAppJobs = () => {
         });
       }
     }
+  };
+
+  // Preserves per-customer (canonical sender) message ordering: same-sender
+  // jobs run strictly in provider-timestamp order and one at a time, while
+  // different senders keep the worker's full configured parallelism. See
+  // apps/api/src/queues/ordering.service.js for the design.
+  const orderedProcessor = withOrdering(processInboundMessage, {
+    store: orderingStore,
+    requeueDelayMs: config.whatsappOrdering.requeueDelayMs,
+    maxRequeues: config.whatsappOrdering.maxRequeues,
   });
+
+  const worker = registerProcessor('whatsapp-inbound', orderedProcessor);
 
   logger.info('WhatsApp queue processor registered');
   return worker;

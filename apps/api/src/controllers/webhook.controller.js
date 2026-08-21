@@ -80,6 +80,13 @@ const handleIncomingMessage = async (req, res) => {
     }
 
     const options = message.id ? { jobId: message.id } : {};
+    // Meta's inbound timestamp (unix seconds) is the source of truth for
+    // per-sender message ordering — see queues/ordering.service.js. It's
+    // preserved through the job data rather than relying on enqueue order,
+    // since redelivered/out-of-order webhook events would otherwise be
+    // ordered by arrival at this process instead of by what the customer
+    // actually sent first.
+    const providerTimestamp = message.timestamp ? Number(message.timestamp) * 1000 : undefined;
     await enqueue('whatsapp-inbound', 'message.received', {
       from,
       whatsappName,
@@ -87,6 +94,7 @@ const handleIncomingMessage = async (req, res) => {
       mediaId: message.audio?.id || message.voice?.id,
       messageType: message.type,
       whatsappMessageId: message.id,
+      providerTimestamp,
     }, options);
     increment('sendam_webhook_events_total', { status: 'enqueued' });
     if (claimedMessageId) {

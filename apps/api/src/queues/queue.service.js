@@ -29,13 +29,17 @@ const getQueue = (name) => {
 };
 
 const registerProcessor = (name, processor) => {
-  const observedProcessor = async (job) => {
+  const observedProcessor = async (job, token) => {
     const correlationId = correlationIdFrom(job.data?.correlationId || String(job.id || ''));
     return runWithContext({ correlationId, jobId: job.id, queue: name }, async () => {
       const started = process.hrtime.bigint();
       increment('sendam_queue_jobs_total', { queue: name, status: 'active' });
+      const enqueuedAt = Number(job.timestamp);
+      if (Number.isFinite(enqueuedAt)) {
+        observeDuration('sendam_queue_job_age_seconds', { queue: name }, Math.max(0, (Date.now() - enqueuedAt) / 1000));
+      }
       try {
-        const result = await processor(job);
+        const result = await processor(job, token);
         increment('sendam_queue_jobs_total', { queue: name, status: 'completed' });
         return result;
       } catch (error) {

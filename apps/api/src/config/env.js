@@ -50,6 +50,25 @@ module.exports = {
   redis: {
     url: process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL,
   },
+  // BullMQ Worker tuning for the background worker process (src/worker.js).
+  worker: {
+    concurrency: Number(process.env.WORKER_CONCURRENCY || 5),
+    lockDurationMs: Number(process.env.WORKER_LOCK_DURATION_MS || 30000),
+    heartbeatIntervalMs: Number(process.env.WORKER_HEARTBEAT_INTERVAL_MS || 30000),
+    shutdownTimeoutMs: Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS || 10000),
+  },
+  // Per-customer WhatsApp message ordering (issue #157). See
+  // queues/ordering.service.js for how these are used.
+  whatsappOrdering: {
+    // How long a job waits before re-checking its sender's lock when another
+    // message for the same sender is already being processed. Small on
+    // purpose: this only delays same-sender messages, never other senders.
+    requeueDelayMs: Number(process.env.WHATSAPP_ORDER_REQUEUE_DELAY_MS || 250),
+    // After this many re-checks (~10s at the default delay) an unusually
+    // long in-flight job triggers an ordering-violation metric/log so it can
+    // be alerted on, without ever forcing an unsafe concurrent takeover.
+    maxRequeues: Number(process.env.WHATSAPP_ORDER_MAX_REQUEUES || 40),
+  },
   observability: {
     serviceName: process.env.SERVICE_NAME || 'sendam-api',
     release: process.env.RELEASE_SHA,
