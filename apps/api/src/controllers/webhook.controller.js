@@ -1,4 +1,4 @@
-const { sendTextMessage } = require('../services/whatsapp.service');
+const { sendTextMessage, recordDeliveryStatus } = require('../services/whatsapp.service');
 const { replies } = require('../services/agent/replies');
 const { consume } = require('../services/rateLimit.service');
 const config = require('../config/env');
@@ -24,6 +24,26 @@ const handleIncomingMessage = async (req, res) => {
     if (body.object !== 'whatsapp_business_account') return res.status(200).send('EVENT_RECEIVED');
 
     const value = body.entry?.[0]?.changes?.[0]?.value;
+
+    // Delivery receipts (sent/delivered/read/failed) arrive on the same
+    // webhook as inbound messages, as `value.statuses`. They report on
+    // messages *we* sent, so they never carry conversation side effects —
+    // just record them and keep going. Each entry is handled independently
+    // so one malformed entry can't drop the rest of the batch, and a
+    // recording failure is logged/observed rather than thrown, so a status
+    // callback never turns into a 5xx that makes Meta retry the whole batch.
+    const statuses = value?.statuses;
+    if (Array.isArray(statuses) && statuses.length) {
+      for (const statusEntry of statuses) {
+        try {
+          await recordDeliveryStatus(statusEntry);
+        } catch (statusError) {
+          logger.error('whatsapp_status_processing_error', { message: statusError.message });
+          captureException(statusError, { source: 'webhook_status' });
+        }
+      }
+    }
+
     const message = value?.messages?.[0];
     if (!message || !['text', 'audio', 'voice'].includes(message.type)) {
       return res.status(200).send('EVENT_RECEIVED');

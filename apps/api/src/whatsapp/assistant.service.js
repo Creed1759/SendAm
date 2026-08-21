@@ -121,7 +121,14 @@ const handlePendingPin = async ({ phoneNumber, user, text, notify }) => {
     routeType: pending.routeType,
   });
 
-  await notify(phoneNumber, `Payment ${result.transaction.status}. Receipt: ${result.receipt.transactionId}`);
+  await notify(phoneNumber, `Payment ${result.transaction.status}. Receipt: ${result.receipt.transactionId}`, {
+    notification: {
+      userId: user.id,
+      type: 'transaction_receipt',
+      referenceType: 'transaction',
+      referenceId: result.transaction.id,
+    },
+  });
   return true;
 };
 

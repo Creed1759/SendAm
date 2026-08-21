@@ -1,6 +1,7 @@
 const { registerProcessor } = require('../queues/queue.service');
 const { processMessage } = require('../whatsapp/assistant.service');
 const { processVoiceMessage } = require('../voice/voice.service');
+const { sendTextMessage } = require('../services/whatsapp.service');
 const logger = require('../utils/logger');
 const prisma = require('../common/prisma');
 
@@ -37,6 +38,18 @@ const registerWhatsAppJobs = () => {
         });
       }
     }
+  });
+
+  // Bounded retry for outbound sends whose Meta status callback reported a
+  // safe/transient terminal failure (see recordDeliveryStatus and
+  // classifyWhatsappFailure in whatsapp.service.js). This re-send creates a
+  // fresh Notification row carrying the same reference so the retry attempt
+  // stays traceable back to the original transaction/voice command.
+  registerProcessor('whatsapp-outbound-retry', async (job) => {
+    const { recipient, body, userId, type, channel, referenceType, referenceId } = job.data;
+    await sendTextMessage(recipient, body, {
+      notification: { userId, type: type || 'generic', channel, referenceType, referenceId },
+    });
   });
 
   logger.info('WhatsApp queue processor registered');
