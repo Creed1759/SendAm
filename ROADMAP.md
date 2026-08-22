@@ -115,20 +115,20 @@ Built tests include:
 
 | Test file | Scope |
 |-----------|-------|
-| `crypto.test.js` | Wallet key encryption/decryption |
-| `adminAuth.test.js` | HMAC session token generation and verification |
-| `validators.test.js` | Input validation helpers |
-| `stellarAdapter.test.js` | Stellar adapter unit tests |
-| `balance.multiasset.test.js` | Multi-asset (XLM + USDC) balance reply |
-| `wallet.trustline.test.js` | USDC trustline open at creation and on fund retry |
-| `webhook.integration.test.js` | Full webhook flow with mocked Prisma and adapter |
-| `restAuthRoutes.integration.test.js` | SEP-10 challenge/token endpoints |
-| `restProtectedRoutes.integration.test.js` | Authenticated REST route enforcement |
-| `deposits.jobs.test.js` | Deposit polling background job |
-| `seed.idempotency.test.js` | Idempotency under duplicate webhook delivery |
-| `payment.orchestrator.test.js` | Payment orchestration logic |
-| `compliance.service.test.js` | KYC tiers, limits, risk scoring |
-| `kyc.lifecycle.test.js` | KYC status transitions |
+| [`crypto.test.js`](apps/api/test/crypto.test.js) | Wallet key encryption/decryption |
+| [`adminAuth.test.js`](apps/api/test/adminAuth.test.js) | HMAC session token generation and verification |
+| [`validators.test.js`](apps/api/test/validators.test.js) | Input validation helpers |
+| [`stellarAdapter.test.js`](apps/api/test/stellarAdapter.test.js) | Stellar adapter unit tests |
+| [`balance.multiasset.test.js`](apps/api/test/balance.multiasset.test.js) | Multi-asset (XLM + USDC) balance reply |
+| [`wallet.trustline.test.js`](apps/api/test/wallet.trustline.test.js) | USDC trustline open at creation and on fund retry |
+| [`webhook.integration.test.js`](apps/api/test/webhook.integration.test.js) | Full webhook flow with mocked Prisma and adapter |
+| [`restAuthRoutes.integration.test.js`](apps/api/test/restAuthRoutes.integration.test.js) | SEP-10 challenge/token endpoints |
+| [`restProtectedRoutes.integration.test.js`](apps/api/test/restProtectedRoutes.integration.test.js) | Authenticated REST route enforcement |
+| [`deposits.jobs.test.js`](apps/api/test/deposits.jobs.test.js) | Deposit polling background job |
+| [`seed.idempotency.test.js`](apps/api/test/seed.idempotency.test.js) | Idempotency under duplicate webhook delivery |
+| [`payment.orchestrator.test.js`](apps/api/test/payment.orchestrator.test.js) | Payment orchestration logic |
+| [`compliance.service.test.js`](apps/api/test/compliance.service.test.js) | KYC tiers, limits, risk scoring |
+| [`kyc.lifecycle.test.js`](apps/api/test/kyc.lifecycle.test.js) | KYC status transitions |
 
 Remaining gaps (Planned):
 
