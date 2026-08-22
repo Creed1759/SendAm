@@ -56,11 +56,11 @@ const baseInput = {
   sender,
   recipientPhoneNumber: '+2348000000002',
   destination: dest,
-  amount: '100',
+  amount: '100.0000000',
   asset: 'USDC',
 };
 
-const txRow   = { id: 'tx_1', userId: 1, type: 'send', amount: '100', asset: 'USDC', rail: 'stellar', status: 'processing', metadata: { fee: '1.00', riskScore: 10 } };
+const txRow   = { id: 'tx_1', userId: 1, type: 'send', amount: '100.0000000', asset: 'USDC', rail: 'stellar', status: 'processing', metadata: { fee: '1.00', riskScore: 10 } };
 const wallet  = { id: 'wallet_1', publicKey: dest, encryptedSecretKey: 'encrypted' };
 const submitOk = { txHash: 'abc123', explorerUrl: 'https://stellar.expert/abc123' };
 const successTx = { ...txRow, status: 'success', txHash: 'abc123', explorerUrl: 'https://stellar.expert/abc123' };
@@ -81,22 +81,22 @@ const setUpHappyPath = () => {
 // Pure-export unit tests
 // ---------------------------------------------------------------------------
 test('calculateFee: returns 1% of the amount', () => {
-  assert.equal(calculateFee('100'), '1.00');
-  assert.equal(calculateFee('250'), '2.50');
-  assert.equal(calculateFee('0'), '0.00');
+  assert.equal(calculateFee('100', 'USDC'), '1.0000000');
+  assert.equal(calculateFee('250', 'NGN'), '2.50');
+  assert.equal(calculateFee('0.0000001', 'XLM'), '0.0000000');
 });
 
-test('calculateFee: handles non-numeric input gracefully', () => {
-  assert.equal(calculateFee('abc'), '0');
-  assert.equal(calculateFee(undefined), '0');
+test('calculateFee: rejects invalid precision before side effects', () => {
+  assert.throws(() => calculateFee('abc', 'USDC'), /positive decimal/);
+  assert.throws(() => calculateFee('1.00000001', 'USDC'), /at most 7 decimal/);
 });
 
 test('buildReceipt: shapes a receipt from a successful transaction', () => {
-  const tx = { id: 'tx_1', status: 'success', amount: '100', asset: 'USDC', rail: 'stellar', explorerUrl: 'https://stellar.expert/abc123' };
+  const tx = { id: 'tx_1', status: 'success', amount: '100.0000000', asset: 'USDC', rail: 'stellar', explorerUrl: 'https://stellar.expert/abc123' };
   assert.deepEqual(buildReceipt({ transaction: tx }), {
     transactionId: 'tx_1',
     status: 'success',
-    amount: '100',
+    amount: '100.0000000',
     asset: 'USDC',
     rail: 'stellar',
     receiptUrl: 'https://stellar.expert/abc123',

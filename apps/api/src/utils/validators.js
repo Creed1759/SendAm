@@ -43,9 +43,15 @@ const isValidPhoneNumber = (phone, defaultRegion = DEFAULT_REGION) => {
   }
 };
 
-const isValidAmount = (amount) => {
-  const parsed = Number(amount);
-  return Number.isFinite(parsed) && parsed > 0;
+const { assertValidAmount } = require('./money');
+
+const isValidAmount = (amount, asset = 'XLM') => {
+  try {
+    assertValidAmount(amount, asset);
+    return true;
+  } catch (_error) {
+    return false;
+  }
 };
 
 module.exports = {
