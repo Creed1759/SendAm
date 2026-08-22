@@ -7,14 +7,16 @@ const { sendTextMessage } = require('../services/whatsapp.service');
 const { claimPendingSend } = require('./pendingClaim');
 const { createRecipientResolver } = require('./recipientResolver');
 const prisma = require('../common/prisma');
+const { canonicalizePhoneNumber } = require('../utils/validators');
 
 const PENDING_SEND_TTL_MS = 10 * 60 * 1000;
 const NATIVE_ASSET = 'XLM';
 
 const resolveUser = async (phoneNumber, whatsappName) => {
-  let user = await prisma.user.findUnique({ where: { phoneNumber } });
+  const canonicalPhone = canonicalizePhoneNumber(phoneNumber);
+  let user = await prisma.user.findUnique({ where: { phoneNumber: canonicalPhone } });
   if (!user) {
-    user = await prisma.user.create({ data: { phoneNumber, whatsappName } });
+    user = await prisma.user.create({ data: { phoneNumber: canonicalPhone, whatsappName } });
   } else if (whatsappName && user.whatsappName !== whatsappName) {
     user = await prisma.user.update({
       where: { id: user.id },
