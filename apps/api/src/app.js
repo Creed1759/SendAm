@@ -10,6 +10,7 @@ const adminRoutes = require('./routes/admin.routes');
 const complianceRoutes = require('./compliance/compliance.routes');
 const pricingRoutes = require('./pricing/pricing.routes');
 const simRoutes = require('./routes/sim.routes');
+const authRoutes = require('./routes/auth.routes');
 
 const errorHandler = require('./middlewares/errorHandler');
 const notFound = require('./middlewares/notFound');
@@ -94,13 +95,13 @@ app.get('/health', async (req, res) => {
 
 // Routes
 app.use('/webhook', webhookRoutes);
+app.use('/api/auth', authRoutes);
 
-// The REST wallet API is unauthenticated (phone number in the body is the only
-// "identity"), so it's gated off in production by default. WhatsApp is the real
-// surface; see config.features.walletRestApi.
+// The REST wallet API requires a SEP-10 application session. The feature flag
+// remains an operational rollout and incident-response kill switch.
 if (config.features.walletRestApi) {
   if (config.isProduction) {
-    logger.warn('ENABLE_WALLET_REST_API=true in production — the unauthenticated /api/wallet routes are exposed.');
+    logger.info('Authenticated REST wallet API enabled in production.');
   }
   app.use('/api/wallet', walletRoutes);
 } else {

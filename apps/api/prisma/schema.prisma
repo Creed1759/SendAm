@@ -28,6 +28,35 @@ model User {
   voiceCommands VoiceCommand[]
   notifications Notification[]
   quotes        Quote[]
+  restSessions  RestSession[]
+}
+
+model Sep10Challenge {
+  id            String    @id @default(cuid())
+  account       String
+  challengeHash String    @unique
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([account, createdAt])
+  @@index([expiresAt])
+}
+
+model RestSession {
+  id         String    @id @default(cuid())
+  userId     String
+  account    String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
 }
 
 // One row per user per chain — direct custody. `encryptedSecretKey` holds
@@ -61,9 +90,11 @@ model Transaction {
   id                    String   @id @default(cuid())
   userId                String
   type                  String
+  /// Canonical decimal string validated by src/utils/money.js; never serialize monetary values as floats.
   amount                String
   asset                 String   @default("USDC")
   fiatCurrency          String?
+  /// Canonical decimal string for configured fiat currencies.
   fiatAmount            String?
   rail                  String   @default("unknown")
   routeType             String   @default("unknown")
@@ -219,9 +250,13 @@ model Quote {
   userId         String?
   sourceCurrency String
   targetCurrency String
+  /// Canonical decimal string in sourceCurrency precision.
   sourceAmount   String
+  /// Canonical decimal string in targetCurrency precision.
   targetAmount   String?
-  rate           Float?
+  /// Decimal string exchange rate; do not use Float for quote math.
+  rate           String?
+  /// Canonical decimal string in sourceCurrency precision.
   fee            String?
   provider       String?
   route          String?

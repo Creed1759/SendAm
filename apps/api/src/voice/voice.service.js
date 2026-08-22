@@ -3,6 +3,7 @@ const config = require('../config/env');
 const { sendTextMessage } = require('../services/whatsapp.service');
 const { processMessage } = require('../whatsapp/assistant.service');
 const prisma = require('../common/prisma');
+const { canonicalizePhoneNumber } = require('../utils/validators');
 
 const transcribeWithDeepgram = async (audioBuffer) => {
   if (!config.voice.deepgramApiKey) {
@@ -44,20 +45,21 @@ const downloadWhatsAppMedia = async (mediaId) => {
 };
 
 const processVoiceMessage = async ({ phoneNumber, whatsappName, mediaId, whatsappMessageId }) => {
-  let user = await prisma.user.findUnique({ where: { phoneNumber } });
-  if (!user) user = await prisma.user.create({ data: { phoneNumber, whatsappName } });
+  const canonicalPhone = canonicalizePhoneNumber(phoneNumber);
+  let user = await prisma.user.findUnique({ where: { phoneNumber: canonicalPhone } });
+  if (!user) user = await prisma.user.create({ data: { phoneNumber: canonicalPhone, whatsappName } });
 
   const record = await prisma.voiceCommand.create({
     data: {
       userId: user.id,
-      phoneNumber,
+      phoneNumber: canonicalPhone,
       whatsappMessageId,
       status: 'queued',
     },
   });
 
   try {
-    await sendTextMessage(phoneNumber, 'Got your voice note. I am checking the payment details now.');
+    await sendTextMessage(canonicalPhone, 'Got your voice note. I am checking the payment details now.');
     const audio = await downloadWhatsAppMedia(mediaId);
     const transcript = await transcribeWithDeepgram(audio);
 
@@ -66,13 +68,13 @@ const processVoiceMessage = async ({ phoneNumber, whatsappName, mediaId, whatsap
       data: { transcript, status: 'transcribed' },
     });
 
-    await processMessage(phoneNumber, whatsappName, transcript);
+    await processMessage(canonicalPhone, whatsappName, transcript);
   } catch (error) {
     await prisma.voiceCommand.update({
       where: { id: record.id },
       data: { status: 'failed', error: error.message },
     });
-    await sendTextMessage(phoneNumber, 'I could not read that voice note. Please try again or type the payment.');
+    await sendTextMessage(canonicalPhone, 'I could not read that voice note. Please try again or type the payment.');
   }
 };
 

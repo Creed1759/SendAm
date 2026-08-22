@@ -7,6 +7,7 @@ const { enqueue } = require('../queues/queue.service');
 const prisma = require('../common/prisma');
 const { increment } = require('../observability/metrics');
 const { captureException } = require('../observability/errors');
+const { canonicalizePhoneNumber } = require('../utils/validators');
 
 /**
  * Transport adapter for the WhatsApp Cloud API webhook. Its only jobs are
@@ -62,7 +63,14 @@ const handleIncomingMessage = async (req, res) => {
       }
     }
 
-    const from = message.from;
+    let from = message.from;
+    try {
+      from = canonicalizePhoneNumber(from);
+    } catch (_err) {
+      logger.warn(`Received webhook message from invalid phone number: ${message.from}`);
+      return res.status(200).send('EVENT_RECEIVED');
+    }
+
     const whatsappName = value?.contacts?.[0]?.profile?.name || '';
 
     // Per-sender throttle. We don't 429 here (that would make Meta retry and

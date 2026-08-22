@@ -93,11 +93,22 @@ module.exports = {
     // Convenience flag: true when STELLAR_NETWORK is not 'testnet'. Used to
     // gate mainnet-only safety controls (e.g. blocking Friendbot access).
     isMainnet: (process.env.STELLAR_NETWORK || 'testnet') !== 'testnet',
+    auth: {
+      signingKey: process.env.STELLAR_AUTH_SIGNING_KEY,
+      homeDomain: process.env.STELLAR_HOME_DOMAIN,
+      webAuthDomain: process.env.STELLAR_WEB_AUTH_DOMAIN,
+      challengeTtlSeconds: Number(process.env.STELLAR_AUTH_CHALLENGE_TTL_SECONDS || 300),
+      sessionTtlMinutes: Number(process.env.REST_SESSION_TTL_MINUTES || 15),
+    },
   },
   pricing: {
     coinGeckoBaseUrl: process.env.COINGECKO_BASE_URL || 'https://api.coingecko.com/api/v3',
     coinGeckoApiKey: process.env.COINGECKO_API_KEY,
     exchangeRateApiKey: process.env.EXCHANGERATE_API_KEY,
+    supportedFiatCurrencies: (process.env.SUPPORTED_FIAT_CURRENCIES || 'NGN')
+      .split(',')
+      .map((currency) => currency.trim().toUpperCase())
+      .filter(Boolean),
   },
   compliance: {
     provider: process.env.KYC_PROVIDER || 'smileid',
@@ -125,14 +136,8 @@ module.exports = {
     whisperApiKey: process.env.WHISPER_API_KEY || process.env.OPENAI_API_KEY,
   },
   features: {
-    // The unauthenticated REST wallet API (/api/wallet/*) treats the phone
-    // number in the request body as identity, so anyone can read another
-    // user's balance or move their funds. Same story for the compliance
-    // endpoints that set state from a bare phone number with no ownership
-    // check (POST /api/compliance/pin, POST /api/compliance/kyc/start) — see
-    // middlewares/requireRestApiEnabled. The real product surface is
-    // WhatsApp (signature-verified), so all of these are OFF in production
-    // unless explicitly enabled, and ON elsewhere for local testing.
+    // Rollout/incident kill switch for SEP-10-authenticated REST operations.
+    // WhatsApp remains independently protected by verified webhook identity.
     walletRestApi: process.env.ENABLE_WALLET_REST_API
       ? process.env.ENABLE_WALLET_REST_API === 'true'
       : env !== 'production',

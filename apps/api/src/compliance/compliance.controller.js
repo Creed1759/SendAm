@@ -7,10 +7,15 @@ const {
 const { hashPin } = require('./pin.service');
 const prisma = require('../common/prisma');
 const { withIdAlias } = require('../common/records');
+const { canonicalizePhoneNumber, isValidPhoneNumber } = require('../utils/validators');
 
 const getProfile = async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({ where: { phoneNumber: req.params.phone } });
+    if (!isValidPhoneNumber(req.params.phone)) {
+      return sendError(res, 'User not found', 404);
+    }
+    const phone = canonicalizePhoneNumber(req.params.phone);
+    const user = await prisma.user.findUnique({ where: { phoneNumber: phone } });
     if (!user) return sendError(res, 'User not found', 404);
     const profile = await getOrCreateKycProfile(user);
     return sendSuccess(res, withIdAlias(profile));
@@ -19,10 +24,16 @@ const getProfile = async (req, res, next) => {
   }
 };
 
+const getOwnProfile = async (req, res, next) => {
+  try {
+    const profile = await getOrCreateKycProfile(req.restUser);
+    return sendSuccess(res, withIdAlias(profile));
+  } catch (error) { return next(error); }
+};
+
 const startKyc = async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({ where: { phoneNumber: req.body.phoneNumber } });
-    if (!user) return sendError(res, 'User not found', 404);
+    const user = req.restUser;
     const profile = await startKycVerification({
       user,
       applicant: req.body,
@@ -89,8 +100,7 @@ const reviewKyc = async (req, res, next) => {
 
 const setPin = async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({ where: { phoneNumber: req.body.phoneNumber } });
-    if (!user) return sendError(res, 'User not found', 404);
+    const user = req.restUser;
     await prisma.user.update({
       where: { id: user.id },
       data: {
@@ -106,6 +116,7 @@ const setPin = async (req, res, next) => {
 
 module.exports = {
   getProfile,
+  getOwnProfile,
   startKyc,
   reviewKyc,
   setPin,
