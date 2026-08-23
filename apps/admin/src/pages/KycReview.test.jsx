@@ -42,7 +42,7 @@ describe('KycReview Component', () => {
 
   it('handles failed mutation gracefully', async () => {
     server.use(
-      http.post('*/api/admin/kyc/:id/approve', () => {
+      http.post('*/api/compliance/kyc/:id/review', () => {
         return HttpResponse.json({ message: 'KYC failed validation' }, { status: 400 });
       })
     );

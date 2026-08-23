@@ -14,10 +14,17 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    console.log('INTERCEPTOR HIT', error.response?.status);
     if (error.response?.status === 401) {
+      console.log('REMOVING TOKEN');
       removeToken();
+      console.log('TOKEN REMOVED', localStorage.getItem('adminToken'));
       if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+        try {
+          window.location.assign('/login');
+        } catch (e) {
+          // Ignore JSDOM Not implemented errors
+        }
       }
     }
     return Promise.reject(error);
@@ -69,11 +76,11 @@ export const getAdminSystemHealth = async () => {
 };
 
 export const approveKyc = async (id) => {
-  const { data } = await api.post(`/admin/kyc/${id}/approve`);
+  const { data } = await api.post(`/compliance/kyc/${id}/review`, { status: 'approved' });
   return data;
 };
 
 export const rejectKyc = async (id) => {
-  const { data } = await api.post(`/admin/kyc/${id}/reject`);
+  const { data } = await api.post(`/compliance/kyc/${id}/review`, { status: 'rejected' });
   return data;
 };

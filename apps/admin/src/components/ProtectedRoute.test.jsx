@@ -3,7 +3,8 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import ProtectedRoute from './ProtectedRoute';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setToken, removeToken } from '../lib/auth';
-import { getAdminStats } from '../lib/adminApi';
+import api from '@shared/api';
+import { adminLogin } from '../lib/adminApi'; // Ensures interceptor is attached
 import { server } from '../mocks/server';
 import { http, HttpResponse } from 'msw';
 
@@ -49,33 +50,18 @@ describe('ProtectedRoute & Session Expiry', () => {
   it('handles session expiry (401 from API) via adminApi interceptor', async () => {
     setToken('expired_token');
     
-    // Mock the window.location for the interceptor using Object.defineProperty
-    const originalLocation = window.location;
-    Object.defineProperty(window, 'location', {
-      value: { href: '/', pathname: '/' },
-      writable: true,
-      configurable: true
-    });
-    
     server.use(
-      http.get('*/api/admin/stats', () => {
+      http.post('*/api/admin/login', () => {
         return HttpResponse.json({ message: 'Unauthorized' }, { status: 401 });
       })
     );
 
     try {
-      await getAdminStats();
+      await adminLogin('wrong');
     } catch (e) {
-      // expected error
+      console.log('CAUGHT ERROR', e.message, e.response?.status);
     }
 
     expect(localStorage.getItem('adminToken')).toBeNull();
-    
-    // Restore window.location
-    Object.defineProperty(window, 'location', {
-      value: originalLocation,
-      writable: true,
-      configurable: true
-    });
   });
 });

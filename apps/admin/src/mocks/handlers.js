@@ -47,11 +47,7 @@ export const handlers = [
     });
   }),
   
-  http.post('*/api/admin/kyc/:id/approve', () => {
-    return HttpResponse.json({ success: true });
-  }),
-  
-  http.post('*/api/admin/kyc/:id/reject', () => {
+  http.post('*/api/compliance/kyc/:id/review', () => {
     return HttpResponse.json({ success: true });
   }),
 ];
