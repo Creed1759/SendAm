@@ -86,3 +86,18 @@ test('enforceTransactionPolicy rejects review sanctions destination', async () =
   );
   assert.equal(updated.sanctionsStatus, 'review');
 });
+
+
+test('enforceTransactionPolicy totals only transactions in the requested asset', async () => {
+  resetPrisma();
+  let where;
+  prismaMock.kycProfile.findUnique = async () => ({ id: 'profile_5', userId: user.id, provider: 'smileid', tier: 1, status: 'approved', sanctionsStatus: 'cleared', custodyStatus: 'not_reviewed' });
+  prismaMock.transaction.findMany = async (query) => {
+    where = query.where;
+    return [{ amount: '19999.0000000', asset: 'USDC' }];
+  };
+
+  await enforceTransactionPolicy({ user, amount: '1.0000000', asset: 'USDC', routeType: 'domestic', destinationCountry: 'NG' });
+
+  assert.equal(where.asset, 'USDC');
+});

@@ -4,6 +4,7 @@ const { writeAuditLog } = require('../common/audit.service');
 const prisma = require('../common/prisma');
 const { withIdAlias, withIdAliases } = require('../common/records');
 const logger = require('../utils/logger');
+const { canonicalizePhoneNumber } = require('../utils/validators');
 
 // SendAm is Stellar-only. The chain column stays on Wallet for legacy rows
 // (a removed Lisk rail once wrote chain='lisk'); those rows are ignored
@@ -34,8 +35,9 @@ const ensureUsdcTrustline = async ({ secretKey, publicKey }) => {
 const createOrGetWallet = async ({ user, phoneNumber }) => {
   let owner = user;
   if (!owner) {
-    owner = await prisma.user.findUnique({ where: { phoneNumber } });
-    if (!owner) owner = await prisma.user.create({ data: { phoneNumber } });
+    const canonicalPhone = canonicalizePhoneNumber(phoneNumber);
+    owner = await prisma.user.findUnique({ where: { phoneNumber: canonicalPhone } });
+    if (!owner) owner = await prisma.user.create({ data: { phoneNumber: canonicalPhone } });
   }
 
   const existing = await prisma.wallet.findUnique({ where: { userId_chain: { userId: owner.id, chain: CHAIN } } });
@@ -87,7 +89,8 @@ const ensureWalletsForUser = async ({ user }) => {
 };
 
 const getWalletsByPhoneNumber = async (phoneNumber) => {
-  const wallets = await prisma.wallet.findMany({ where: { phoneNumber, chain: CHAIN } });
+  const canonicalPhone = canonicalizePhoneNumber(phoneNumber);
+  const wallets = await prisma.wallet.findMany({ where: { phoneNumber: canonicalPhone, chain: CHAIN } });
   return withIdAliases(wallets);
 };
 
@@ -123,7 +126,7 @@ const balance = async ({ wallet }) => {
 const balancesForUser = async ({ userId, phoneNumber }) => {
   const wallets = userId
     ? await prisma.wallet.findMany({ where: { userId, chain: CHAIN } })
-    : await prisma.wallet.findMany({ where: { phoneNumber, chain: CHAIN } });
+    : await prisma.wallet.findMany({ where: { phoneNumber: canonicalizePhoneNumber(phoneNumber), chain: CHAIN } });
 
   return Promise.all(wallets.map(async (wallet) => {
     try {
