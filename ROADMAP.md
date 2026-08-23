@@ -59,7 +59,7 @@ XLM (native) and USDC are both supported:
 - `getBalances()` returns per-asset rows covering XLM and any USDC trustline held by the account.
 - `establishTrustline({ assetCode: 'USDC' })` opens the `changeTrust` operation.
 - [`wallet.service.js`](apps/api/src/wallet/wallet.service.js) automatically opens the USDC trustline at wallet creation and on every `fundWallet` retry — wallets can receive USDC from day one.
-- Tests: [`test/balance.multiasset.test.js`](apps/api/test/balance.multiasset.test.js), [`test/wallet.trustline.test.js`](apps/api/test/wallet.trustline.test.js).
+- Tests: [`apps/api/test/balance.multiasset.test.js`](apps/api/test/balance.multiasset.test.js), [`apps/api/test/wallet.trustline.test.js`](apps/api/test/wallet.trustline.test.js).
 
 `resolveAsset()` is the seam for adding further anchor-issued assets; a new code + issuer pair is the only change required.
 
@@ -68,7 +68,7 @@ XLM (native) and USDC are both supported:
 Wallet-ownership authentication for REST clients is in place:
 
 - Challenge/token service: [`apps/api/src/services/restAuth.service.js`](apps/api/src/services/restAuth.service.js)
-- Route integration tests: [`test/restAuthRoutes.integration.test.js`](apps/api/test/restAuthRoutes.integration.test.js), [`test/restProtectedRoutes.integration.test.js`](apps/api/test/restProtectedRoutes.integration.test.js)
+- Route integration tests: [`apps/api/test/restAuthRoutes.integration.test.js`](apps/api/test/restAuthRoutes.integration.test.js), [`apps/api/test/restProtectedRoutes.integration.test.js`](apps/api/test/restProtectedRoutes.integration.test.js)
 
 REST sessions are independent from WhatsApp identity (Meta webhook signature). Enabling the authenticated REST surface requires deploying with `ENABLE_WALLET_REST_API=true` and the `STELLAR_AUTH_SIGNING_KEY` / domain variables — see [`docs/STELLAR.md`](docs/STELLAR.md#sep-10-rest-authentication).
 
