@@ -17,6 +17,7 @@ module.exports = {
     .filter(Boolean),
   admin: {
     password: process.env.ADMIN_PASSWORD,
+    bootstrapEmail: process.env.ADMIN_BOOTSTRAP_EMAIL,
     jwtSecret: process.env.JWT_SECRET,
     sessionTtlHours: Number(process.env.ADMIN_SESSION_TTL_HOURS || 12),
   },

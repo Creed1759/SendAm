@@ -56,7 +56,7 @@ describe('ProtectedRoute & Session Expiry', () => {
     );
 
     try {
-      await adminLogin('wrong');
+      await adminLogin('operator@example.com', 'wrong');
     } catch (e) {
       console.log('CAUGHT ERROR', e.message, e.response?.status);
     }

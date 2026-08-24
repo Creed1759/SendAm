@@ -1,5 +1,6 @@
 const { sendSuccess, sendError, sendPaginated } = require('../utils/response');
-const { verifyPassword, createToken } = require('../services/adminAuth.service');
+const { authenticate, createInvitation, acceptInvitation, revokeSessions, hashPassword } = require('../services/adminAuth.service');
+const { writeAuditLog } = require('../common/audit.service');
 const prisma = require('../common/prisma');
 const { withIdAliases } = require('../common/records');
 
@@ -13,15 +14,90 @@ const parsePagination = (query) => {
 
 const login = async (req, res, next) => {
   try {
-    const { password } = req.body || {};
-    if (!verifyPassword(password)) {
+    const { email, password } = req.body || {};
+    const result = await authenticate(email, password);
+    if (!result) {
+      await writeAuditLog({ actorType: 'anonymous', action: 'admin.login.denied', metadata: { email: String(email || '').toLowerCase() }, req });
       return sendError(res, 'Invalid credentials', 401);
     }
-    const token = createToken();
-    return sendSuccess(res, { token }, 'Login successful');
+    await writeAuditLog({ actorType: 'administrator', actorId: result.admin.id, action: 'admin.login.succeeded', entityType: 'AdminSession', entityId: result.session.id, req });
+    return sendSuccess(res, { token: result.token, administrator: { id: result.admin.id, email: result.admin.email, name: result.admin.name, role: result.admin.role.name } }, 'Login successful');
   } catch (error) {
     next(error);
   }
+};
+
+const acceptInvite = async (req, res, next) => {
+  try {
+    const admin = await acceptInvitation(req.body?.token, req.body?.password);
+    await writeAuditLog({ actorType: 'administrator', actorId: admin.id, action: 'admin.invitation.accepted', entityType: 'AdminUser', entityId: admin.id, req });
+    return sendSuccess(res, null, 'Account created', 201);
+  } catch (error) { if (error.statusCode) return sendError(res, error.message, error.statusCode); return next(error); }
+};
+
+const listAdministrators = async (_req, res, next) => {
+  try {
+    const admins = await prisma.adminUser.findMany({ select: { id: true, email: true, name: true, disabledAt: true, lastLoginAt: true, createdAt: true, role: { select: { name: true, permissions: true } } }, orderBy: { createdAt: 'asc' } });
+    return sendSuccess(res, admins);
+  } catch (error) { return next(error); }
+};
+
+const inviteAdministrator = async (req, res, next) => {
+  try {
+    const { invitation, token } = await createInvitation({ email: req.body?.email, name: req.body?.name, roleName: req.body?.role, createdById: req.admin.id });
+    await writeAuditLog({ actorType: 'administrator', actorId: req.admin.id, action: 'admin.invitation.created', entityType: 'AdminInvitation', entityId: invitation.id, metadata: { email: invitation.email }, req });
+    return sendSuccess(res, { invitationId: invitation.id, token, expiresAt: invitation.expiresAt }, 'Invitation created', 201);
+  } catch (error) { if (error.statusCode) return sendError(res, error.message, error.statusCode); return next(error); }
+};
+
+const enabledAdministratorCount = () => prisma.adminUser.count({ where: { disabledAt: null, role: { name: 'administrator' } } });
+const updateAdministratorRole = async (req, res, next) => {
+  try {
+    const target = await prisma.adminUser.findUnique({ where: { id: req.params.id }, include: { role: true } });
+    const role = await prisma.adminRole.findUnique({ where: { name: req.body?.role } });
+    if (!target || !role) return sendError(res, 'Administrator or role not found', 404);
+    if (target.role.name === 'administrator' && role.name !== 'administrator' && await enabledAdministratorCount() <= 1) return sendError(res, 'Cannot remove the last enabled administrator', 409);
+    await prisma.adminUser.update({ where: { id: target.id }, data: { roleId: role.id } });
+    await revokeSessions(target.id);
+    await writeAuditLog({ actorType: 'administrator', actorId: req.admin.id, action: 'admin.role.changed', entityType: 'AdminUser', entityId: target.id, metadata: { from: target.role.name, to: role.name }, req });
+    return sendSuccess(res, null, 'Role updated; active sessions revoked');
+  } catch (error) { return next(error); }
+};
+
+const disableAdministrator = async (req, res, next) => {
+  try {
+    const target = await prisma.adminUser.findUnique({ where: { id: req.params.id }, include: { role: true } });
+    if (!target) return sendError(res, 'Administrator not found', 404);
+    if (target.role.name === 'administrator' && !target.disabledAt && await enabledAdministratorCount() <= 1) return sendError(res, 'Cannot disable the last enabled administrator', 409);
+    await prisma.adminUser.update({ where: { id: target.id }, data: { disabledAt: new Date() } }); await revokeSessions(target.id);
+    await writeAuditLog({ actorType: 'administrator', actorId: req.admin.id, action: 'admin.account.disabled', entityType: 'AdminUser', entityId: target.id, req });
+    return sendSuccess(res, null, 'Administrator disabled');
+  } catch (error) { return next(error); }
+};
+
+const resetCredential = async (req, res, next) => {
+  try {
+    const passwordHash = await hashPassword(req.body?.password);
+    const target = await prisma.adminUser.update({ where: { id: req.params.id }, data: { passwordHash, passwordChangedAt: new Date() } }); await revokeSessions(target.id);
+    await writeAuditLog({ actorType: 'administrator', actorId: req.admin.id, action: 'admin.credential.reset', entityType: 'AdminUser', entityId: target.id, req });
+    return sendSuccess(res, null, 'Credential reset; active sessions revoked');
+  } catch (error) { if (error.statusCode) return sendError(res, error.message, error.statusCode); return next(error); }
+};
+
+const revokeAdministratorSessions = async (req, res, next) => {
+  try {
+    await revokeSessions(req.params.id);
+    await writeAuditLog({ actorType: 'administrator', actorId: req.admin.id, action: 'admin.sessions.revoked', entityType: 'AdminUser', entityId: req.params.id, req });
+    return sendSuccess(res, null, 'Sessions revoked');
+  } catch (error) { return next(error); }
+};
+
+const logout = async (req, res, next) => {
+  try {
+    await prisma.adminSession.update({ where: { id: req.admin.sessionId }, data: { revokedAt: new Date() } });
+    await writeAuditLog({ actorType: 'administrator', actorId: req.admin.id, action: 'admin.session.revoked', entityType: 'AdminSession', entityId: req.admin.sessionId, req });
+    return sendSuccess(res, null, 'Logged out');
+  } catch (error) { return next(error); }
 };
 
 const getStats = async (req, res, next) => {
@@ -169,6 +245,14 @@ const getSystemHealth = async (_req, res, next) => {
 
 module.exports = {
   login,
+  acceptInvite,
+  logout,
+  listAdministrators,
+  inviteAdministrator,
+  updateAdministratorRole,
+  disableAdministrator,
+  resetCredential,
+  revokeAdministratorSessions,
   getStats,
   getUsers,
   getWallets,

@@ -28,8 +28,8 @@ api.interceptors.response.use(
   }
 );
 
-export const adminLogin = async (password) => {
-  const { data } = await api.post('/admin/login', { password });
+export const adminLogin = async (email, password) => {
+  const { data } = await api.post('/admin/login', { email, password });
   const token = data?.data?.token;
   if (token) {
     setToken(token);

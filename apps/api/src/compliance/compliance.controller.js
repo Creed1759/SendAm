@@ -8,6 +8,7 @@ const { hashPin } = require('./pin.service');
 const prisma = require('../common/prisma');
 const { withIdAlias } = require('../common/records');
 const { canonicalizePhoneNumber, isValidPhoneNumber } = require('../utils/validators');
+const { writeAuditLog } = require('../common/audit.service');
 
 const getProfile = async (req, res, next) => {
   try {
@@ -92,6 +93,7 @@ const reviewKyc = async (req, res, next) => {
       where: { id: reviewed.userId },
       data: { kycTier: reviewed.tier, riskScore: reviewed.riskScore },
     });
+    await writeAuditLog({ actorType: 'administrator', actorId: req.admin.id, action: 'admin.compliance.reviewed', entityType: 'KycProfile', entityId: reviewed.id, metadata: { status, sanctionsStatus, custodyStatus }, req });
     return sendSuccess(res, withIdAlias(reviewed), 'KYC profile reviewed');
   } catch (error) {
     next(error);

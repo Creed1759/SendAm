@@ -13,7 +13,7 @@ const owner = { id: 'owner-1', phoneNumber: '+2348000000001', kycTier: 0 };
 const calls = {};
 const config = { features: { walletRestApi: true } };
 inject('config/env', config);
-inject('middlewares/requireAdmin', (_req, res) => res.sendStatus(401));
+inject('middlewares/requireAdmin', () => (_req, res) => res.sendStatus(401));
 inject('services/restAuth.service', {
   findSession: async (token) => token === 'valid-session-token-that-is-long-enough'
     ? { id: 'session-1', user: owner } : null,
