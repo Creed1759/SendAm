@@ -18,8 +18,8 @@ const validateEnv = (config) => {
     problems.push('JWT_SECRET must be at least 32 characters. Generate one with: openssl rand -hex 32');
   }
 
-  if (!config.admin.password) {
-    problems.push('ADMIN_PASSWORD must be set.');
+  if (config.admin.password && !config.admin.bootstrapEmail) {
+    problems.push('ADMIN_BOOTSTRAP_EMAIL must be set while ADMIN_PASSWORD legacy bootstrap is enabled.');
   }
 
   if (config.isProduction && !config.whatsapp.appSecret) {

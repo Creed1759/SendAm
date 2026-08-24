@@ -9,7 +9,7 @@ const validSecret = crypto.randomBytes(32).toString('hex');
 const baseConfig = () => ({
   isProduction: false,
   encryptionKey: validKey,
-  admin: { jwtSecret: validSecret, password: 'correct horse battery staple' },
+  admin: { jwtSecret: validSecret, password: 'correct horse battery staple', bootstrapEmail: 'admin@example.com' },
   whatsapp: { appSecret: undefined },
   messageTransport: 'meta',
   stellar: {
@@ -60,10 +60,17 @@ test('short JWT_SECRET throws', () => {
   assert.throws(() => validateEnv(config), /JWT_SECRET/);
 });
 
-test('missing ADMIN_PASSWORD throws', () => {
+test('database-only admin auth does not require legacy ADMIN_PASSWORD', () => {
   const config = baseConfig();
   config.admin.password = undefined;
-  assert.throws(() => validateEnv(config), /ADMIN_PASSWORD/);
+  config.admin.bootstrapEmail = undefined;
+  assert.doesNotThrow(() => validateEnv(config));
+});
+
+test('legacy bootstrap password requires an attributable email', () => {
+  const config = baseConfig();
+  config.admin.bootstrapEmail = undefined;
+  assert.throws(() => validateEnv(config), /ADMIN_BOOTSTRAP_EMAIL/);
 });
 
 test('missing WHATSAPP_APP_SECRET is fine outside production', () => {
@@ -123,10 +130,10 @@ test('production error monitor endpoint must use HTTPS', () => {
 test('multiple violations are all reported in one error', () => {
   const config = baseConfig();
   config.encryptionKey = undefined;
-  config.admin.password = undefined;
+  config.admin.bootstrapEmail = undefined;
   assert.throws(() => validateEnv(config), (err) => {
     assert.match(err.message, /ENCRYPTION_KEY/);
-    assert.match(err.message, /ADMIN_PASSWORD/);
+    assert.match(err.message, /ADMIN_BOOTSTRAP_EMAIL/);
     return true;
   });
 });

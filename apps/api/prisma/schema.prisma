@@ -226,6 +226,59 @@ model AuditLog {
   @@index([createdAt])
 }
 
+model AdminUser {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String
+  passwordHash      String
+  roleId            String
+  disabledAt        DateTime?
+  passwordChangedAt DateTime   @default(now())
+  lastLoginAt       DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  role        AdminRole         @relation(fields: [roleId], references: [id])
+  sessions    AdminSession[]
+  invitations AdminInvitation[] @relation("InvitationCreator")
+
+  @@index([roleId])
+  @@index([disabledAt])
+}
+
+model AdminSession {
+  id         String    @id @default(cuid())
+  adminId    String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastUsedAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+
+  admin AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, expiresAt])
+  @@index([expiresAt])
+}
+
+model AdminInvitation {
+  id          String    @id @default(cuid())
+  email       String
+  name        String
+  roleId      String
+  tokenHash   String    @unique
+  createdById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  role      AdminRole @relation(fields: [roleId], references: [id])
+  createdBy AdminUser @relation("InvitationCreator", fields: [createdById], references: [id])
+
+  @@index([email, expiresAt])
+}
+
 // Outbound message + delivery lifecycle. `status` walks queued -> sent ->
 // delivered -> read, or terminates at failed. `providerMessageId` is Meta's
 // wamid, set once the Cloud API accepts the send — it is how later status
@@ -322,6 +375,8 @@ model AdminRole {
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  users       AdminUser[]
+  invitations AdminInvitation[]
 }
 
 model ProcessedMessage {

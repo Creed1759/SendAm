@@ -13,14 +13,21 @@ const loginLimiter = rateLimit({
 });
 
 router.post('/login', loginLimiter, adminController.login);
+router.post('/invitations/accept', loginLimiter, adminController.acceptInvite);
 
-// Everything below requires a valid admin token.
-router.get('/stats', requireAdmin, adminController.getStats);
-router.get('/users', requireAdmin, adminController.getUsers);
-router.get('/wallets', requireAdmin, adminController.getWallets);
-router.get('/transactions', requireAdmin, adminController.getTransactions);
-router.get('/kyc', requireAdmin, adminController.getKycProfiles);
-router.get('/audit-logs', requireAdmin, adminController.getAuditLogs);
-router.get('/system-health', requireAdmin, adminController.getSystemHealth);
+router.post('/logout', requireAdmin('admin.read'), adminController.logout);
+router.get('/stats', requireAdmin('admin.read'), adminController.getStats);
+router.get('/users', requireAdmin('admin.read'), adminController.getUsers);
+router.get('/wallets', requireAdmin('admin.read'), adminController.getWallets);
+router.get('/transactions', requireAdmin('admin.read'), adminController.getTransactions);
+router.get('/kyc', requireAdmin('compliance.read'), adminController.getKycProfiles);
+router.get('/audit-logs', requireAdmin('admin.read'), adminController.getAuditLogs);
+router.get('/system-health', requireAdmin('operations.write'), adminController.getSystemHealth);
+router.get('/administrators', requireAdmin('*'), adminController.listAdministrators);
+router.post('/administrators/invite', requireAdmin('*'), adminController.inviteAdministrator);
+router.patch('/administrators/:id/role', requireAdmin('*'), adminController.updateAdministratorRole);
+router.post('/administrators/:id/disable', requireAdmin('*'), adminController.disableAdministrator);
+router.post('/administrators/:id/reset-credential', requireAdmin('*'), adminController.resetCredential);
+router.post('/administrators/:id/revoke-sessions', requireAdmin('*'), adminController.revokeAdministratorSessions);
 
 module.exports = router;
