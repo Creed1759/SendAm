@@ -76,6 +76,14 @@ model Wallet {
   encryptedSecretKey String?
   paymentCursor      String?
   funded             Boolean  @default(false)
+  fundingState       String   @default("pending")
+  fundingAttempts    Int      @default(0)
+  fundingError       String?
+  fundingUpdatedAt   DateTime @default(now())
+  trustlineState     String   @default("pending")
+  trustlineAttempts  Int      @default(0)
+  trustlineError     String?
+  trustlineUpdatedAt DateTime @default(now())
   network            String   @default("testnet")
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
@@ -84,6 +92,8 @@ model Wallet {
 
   @@unique([userId, chain])
   @@index([phoneNumber])
+  @@index([fundingState, fundingUpdatedAt])
+  @@index([trustlineState, trustlineUpdatedAt])
 }
 
 model Transaction {
