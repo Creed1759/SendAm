@@ -226,23 +226,66 @@ model AuditLog {
   @@index([createdAt])
 }
 
+// Outbound message + delivery lifecycle. `status` walks queued -> sent ->
+// delivered -> read, or terminates at failed. `providerMessageId` is Meta's
+// wamid, set once the Cloud API accepts the send — it is how later status
+// webhooks (see WhatsappStatusEvent) are correlated back to this row.
+// `referenceType`/`referenceId` link a notification to the domain object it
+// reports on (e.g. "transaction"/<Transaction.id>, "voiceCommand"/<id>) so
+// financial messages can be traced from the internal event that triggered
+// them through to the provider's delivery state.
 model Notification {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   userId            String?
-  channel           String   @default("whatsapp")
+  channel           String    @default("whatsapp")
   type              String
   recipient         String
   body              String
-  status            String   @default("queued")
+  status            String    @default("queued")
   providerMessageId String?
   error             String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  referenceType     String?
+  referenceId       String?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  lastStatusAt      DateTime?
+  failureCode       String?
+  failureMessage    String?
+  retryable         Boolean   @default(false)
+  retryCount        Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([status])
+  @@index([providerMessageId])
+  @@index([referenceType, referenceId])
+}
+
+// Durable, append-only audit trail of every WhatsApp status callback Meta
+// delivers (sent/delivered/read/failed). The unique key makes exact-duplicate
+// redeliveries a no-op (Prisma P2002), the same idempotency pattern
+// KycWebhookEvent and ProcessedMessage use elsewhere in this schema. Keeping
+// every event (not just the latest) lets us detect out-of-order delivery by
+// comparing `statusTimestamp`s instead of trusting arrival order.
+model WhatsappStatusEvent {
+  id                String   @id @default(cuid())
+  providerMessageId String
+  status            String
+  statusTimestamp   DateTime
+  recipientId       String?
+  errorCode         String?
+  errorTitle        String?
+  errorMessage      String?
+  receivedAt        DateTime @default(now())
+
+  @@unique([providerMessageId, status, statusTimestamp])
+  @@index([providerMessageId])
+  @@index([receivedAt])
 }
 
 model Quote {

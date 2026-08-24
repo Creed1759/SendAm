@@ -121,7 +121,7 @@ const fetchPaymentsPage = async (horizon, publicKey, cursor) => {
  */
 const pollWallet = async (wallet, deps) => {
   const { horizon, prismaClient, notify, fetchRate } = deps;
-  const { id, publicKey, phoneNumber, paymentCursor } = wallet;
+  const { id, userId, publicKey, phoneNumber, paymentCursor } = wallet;
 
   const isFirstPoll = paymentCursor == null;
 
@@ -180,7 +180,14 @@ const pollWallet = async (wallet, deps) => {
     });
 
     const message = formatDepositMessage(amount, asset, fiatRate);
-    await notify(phoneNumber, message);
+    await notify(phoneNumber, message, {
+      notification: {
+        userId: userId || null,
+        type: 'deposit_received',
+        referenceType: 'wallet',
+        referenceId: id,
+      },
+    });
   }
 
   // If the page advanced past the last inbound (e.g. outbound records
@@ -214,7 +221,7 @@ const runDepositSweep = async (deps) => {
   try {
     wallets = await prismaClient.wallet.findMany({
       where: { chain: 'stellar', publicKey: { not: null } },
-      select: { id: true, publicKey: true, phoneNumber: true, paymentCursor: true },
+      select: { id: true, userId: true, publicKey: true, phoneNumber: true, paymentCursor: true },
     });
   } catch (err) {
     logger.error(`Deposit poller: failed to load wallets: ${err.message}`);

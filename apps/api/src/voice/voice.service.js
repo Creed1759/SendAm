@@ -58,6 +58,13 @@ const processVoiceMessage = async ({ phoneNumber, whatsappName, mediaId, whatsap
     },
   });
 
+  const notificationMeta = {
+    userId: user.id,
+    type: 'voice_reply',
+    referenceType: 'voiceCommand',
+    referenceId: record.id,
+  };
+
   try {
     await sendTextMessage(canonicalPhone, 'Got your voice note. I am checking the payment details now.');
     const audio = await downloadWhatsAppMedia(mediaId);
