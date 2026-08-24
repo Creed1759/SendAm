@@ -41,6 +41,7 @@
   },
   "optionalDependencies": {
     "@rolldown/binding-linux-x64-gnu": "1.2.5",
-    "@rollup/rollup-linux-x64-gnu": "4.62.4"
+    "@rollup/rollup-linux-x64-gnu": "4.62.4",
+    "lightningcss-linux-x64-gnu": "1.33.0"
   }
 }
