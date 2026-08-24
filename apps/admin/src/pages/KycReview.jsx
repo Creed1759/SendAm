@@ -10,16 +10,21 @@ export default function KycReview() {
   const [error, setError] = useState('');
   const [mutatingId, setMutatingId] = useState(null);
 
-  const fetchKyc = () => {
-    setLoading(true);
-    getAdminKyc()
-      .then((res) => setRows(res.data || []))
-      .catch((err) => setError(err.message || 'Failed to fetch KYC profiles'))
-      .finally(() => setLoading(false));
-  };
-
   useEffect(() => {
-    fetchKyc();
+    let active = true;
+    getAdminKyc()
+      .then((res) => {
+        if (active) setRows(res.data || []);
+      })
+      .catch((err) => {
+        if (active) setError(err.message || 'Failed to fetch KYC profiles');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const handleApprove = async (id) => {

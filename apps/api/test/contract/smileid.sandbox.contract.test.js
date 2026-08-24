@@ -26,6 +26,7 @@ describe("Smile ID sandbox contract", () => {
       // signature often required in real calls — without full signing helper,
       // we only assert that the sandbox host responds with a structured body.
     };
+    assert.equal(payload.partner_id, partnerId);
 
     let res;
     try {

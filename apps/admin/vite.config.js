@@ -20,6 +20,7 @@ export default defineConfig({
   server: {
     port: 3001,
   },
+  esbuild: process.env.VITEST ? { jsx: 'automatic' } : undefined,
   test: {
     globals: true,
     environment: 'jsdom',

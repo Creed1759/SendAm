@@ -47,7 +47,6 @@ const executePayment = async ({
   // Direct custody only supports the native asset for now (see
   // wallet/stellar.adapter.js resolveAsset) — no anchor-asset support yet.
   const effectiveAsset = asset || NATIVE_ASSET;
-  const settlementAmount = normalizeAmount(amount, effectiveAsset);
   const effectiveRouteType = routeType
     || (sourceCountry && destinationCountry && sourceCountry !== destinationCountry ? 'cross_border' : 'domestic');
   const normalizedAmount = assertValidAmount(amount, effectiveAsset);

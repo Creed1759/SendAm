@@ -89,12 +89,12 @@ const verifyWalletDecryptability = async (client, decrypt) => {
 
 const runRestoreDrill = async ({
   env = process.env,
-  now = new Date(),
+  now,
   clientFactory = (config) => new Client(config),
   redisFactory,
   decrypt,
 } = {}) => {
-  const startedAt = now;
+  const startedAt = now || new Date();
   const connectionString = env.DATABASE_URL || env.DRILL_DATABASE_URL;
   if (!connectionString) throw new Error('DRILL_DATABASE_URL or DATABASE_URL is required');
 
@@ -111,7 +111,7 @@ const runRestoreDrill = async ({
     const counts = await queryRepresentativeCounts(client);
     const walletDecrypt = await verifyWalletDecryptability(client, decrypt || require('../src/services/crypto.service').decrypt);
     const queue = await validateRedisQueue({ redisUrl: env.REDIS_URL || env.UPSTASH_REDIS_URL, maxAgeMinutes: queueMaxAgeMinutes, redisFactory });
-    const finishedAt = new Date();
+    const finishedAt = now || new Date();
     const rtoMinutes = Math.max(1, minutesBetween(finishedAt, startedAt));
     if (rtoMinutes > rtoObjectiveMinutes) throw new Error(`Restore drill RTO ${rtoMinutes} minutes exceeds ${rtoObjectiveMinutes} minute objective`);
     return {

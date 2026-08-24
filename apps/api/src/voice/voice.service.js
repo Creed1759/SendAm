@@ -66,7 +66,9 @@ const processVoiceMessage = async ({ phoneNumber, whatsappName, mediaId, whatsap
   };
 
   try {
-    await sendTextMessage(canonicalPhone, 'Got your voice note. I am checking the payment details now.');
+    await sendTextMessage(canonicalPhone, 'Got your voice note. I am checking the payment details now.', {
+      notification: notificationMeta,
+    });
     const audio = await downloadWhatsAppMedia(mediaId);
     const transcript = await transcribeWithDeepgram(audio);
 
@@ -81,7 +83,9 @@ const processVoiceMessage = async ({ phoneNumber, whatsappName, mediaId, whatsap
       where: { id: record.id },
       data: { status: 'failed', error: error.message },
     });
-    await sendTextMessage(canonicalPhone, 'I could not read that voice note. Please try again or type the payment.');
+    await sendTextMessage(canonicalPhone, 'I could not read that voice note. Please try again or type the payment.', {
+      notification: notificationMeta,
+    });
   }
 };
 

@@ -49,7 +49,7 @@ function skipUnlessCredentials(provider, t) {
 function redact(input) {
   if (typeof input !== "string") return String(input);
   return input
-    .replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, "Bearer [REDACTED]")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
     .replace(/(api[_-]?key|secret|token|password)[=:]\s*["']?[^"'\s&]+/gi, "$1=[REDACTED]")
     .replace(/\b\d{10,15}\b/g, "[PHONE_REDACTED]")
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[EMAIL_REDACTED]");

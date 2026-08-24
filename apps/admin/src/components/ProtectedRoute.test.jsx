@@ -1,9 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import ProtectedRoute from './ProtectedRoute';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { setToken, removeToken } from '../lib/auth';
-import api from '@shared/api';
 import { adminLogin } from '../lib/adminApi'; // Ensures interceptor is attached
 import { server } from '../mocks/server';
 import { http, HttpResponse } from 'msw';

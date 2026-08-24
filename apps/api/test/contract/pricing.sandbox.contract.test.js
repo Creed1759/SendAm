@@ -15,7 +15,7 @@ describe("Pricing provider sandbox contract", () => {
     if (skipUnlessCredentials("pricing", t)) return;
 
     const key = process.env.EXCHANGE_RATE_API_KEY;
-    const url = `\( {EXCHANGE_RATE_BASE}/ \){encodeURIComponent(key)}/pair/USD/NGN`;
+    const url = `${EXCHANGE_RATE_BASE}/${encodeURIComponent(key)}/pair/USD/NGN`;
 
     let res;
     try {

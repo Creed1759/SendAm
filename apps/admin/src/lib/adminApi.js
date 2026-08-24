@@ -14,15 +14,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    console.log('INTERCEPTOR HIT', error.response?.status);
     if (error.response?.status === 401) {
-      console.log('REMOVING TOKEN');
       removeToken();
-      console.log('TOKEN REMOVED', localStorage.getItem('adminToken'));
       if (window.location.pathname !== '/login') {
         try {
           window.location.assign('/login');
-        } catch (e) {
+        } catch {
           // Ignore JSDOM Not implemented errors
         }
       }
