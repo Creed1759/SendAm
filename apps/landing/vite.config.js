@@ -18,4 +18,17 @@ export default defineConfig({
   server: {
     port: 3000,
   },
+  // @vitejs/plugin-react 6 configures JSX via Vite's newer `oxc.jsx` hook,
+  // which Vitest's test transform pipeline doesn't pick up (it falls back to
+  // esbuild's own classic transform, which expects a global `React`). This
+  // stable esbuild option keeps .jsx files on the automatic runtime under
+  // Vitest; scoped to `process.env.VITEST` so `vite dev`/`vite build` keep
+  // using the plugin's own (newer, oxc-based) JSX handling untouched.
+  esbuild: process.env.VITEST ? { jsx: 'automatic' } : undefined,
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/test/setup.js'],
+    css: false,
+  },
 });

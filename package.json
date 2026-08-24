@@ -8,6 +8,19 @@
     "apps/*",
     "packages/*"
   ],
+  "overrides": {
+    "@testing-library/react": {
+      "react-dom": "^19.2.6"
+    },
+    "react-router-dom": {
+      "react": "^19.2.6",
+      "react-dom": "^19.2.6"
+    },
+    "react-router": {
+      "react": "^19.2.6",
+      "react-dom": "^19.2.6"
+    }
+  },
   "scripts": {
     "dev:api": "npm run dev --workspace=apps/api",
     "dev:worker": "npm run dev:worker --workspace=apps/api",
