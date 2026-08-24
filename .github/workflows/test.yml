@@ -110,6 +110,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # Run admin dashboard tests
+      - run: npm run test --workspace=apps/admin
       # Build both Vite frontends so a compile break in either app fails the
       # check and blocks the merge, exactly like a failing test.
       - run: npm run build:landing
