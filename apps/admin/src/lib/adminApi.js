@@ -42,29 +42,60 @@ export const getAdminStats = async () => {
   return data;
 };
 
-export const getAdminUsers = async ({ page = 1, limit = 50 } = {}) => {
-  const { data } = await api.get('/admin/users', { params: { page, limit } });
+// Every admin list accepts the same cursor + filter `params` shape:
+//   { limit, after, before, ...filters }  ->  { data, pagination, success }
+// `after`/`before` are opaque cursors returned by the API; filter keys are
+// forwarded as query params and resolved server-side.
+export const getAdminUsers = async (params = {}) => {
+  const { data } = await api.get('/admin/users', { params });
   return data;
 };
 
-export const getAdminWallets = async ({ page = 1, limit = 50 } = {}) => {
-  const { data } = await api.get('/admin/wallets', { params: { page, limit } });
+export const getAdminWallets = async (params = {}) => {
+  const { data } = await api.get('/admin/wallets', { params });
   return data;
 };
 
-export const getAdminTransactions = async ({ page = 1, limit = 50 } = {}) => {
-  const { data } = await api.get('/admin/transactions', { params: { page, limit } });
+export const getAdminTransactions = async (params = {}) => {
+  const { data } = await api.get('/admin/transactions', { params });
   return data;
 };
 
-export const getAdminKyc = async () => {
-  const { data } = await api.get('/admin/kyc');
+export const getAdminKyc = async (params = {}) => {
+  const { data } = await api.get('/admin/kyc', { params });
   return data;
 };
 
-export const getAdminAuditLogs = async () => {
-  const { data } = await api.get('/admin/audit-logs');
+export const getAdminAuditLogs = async (params = {}) => {
+  const { data } = await api.get('/admin/audit-logs', { params });
   return data;
+};
+
+// Sensitive exports are authorized server-side and recorded to the audit log.
+// We stream the CSV response to a browser download.
+const triggerDownload = (blob, filename) => {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+export const exportAdminKyc = async (params = {}) => {
+  const { after, before, limit, ...filters } = params;
+  const response = await api.get('/admin/kyc/export', { params: filters, responseType: 'blob' });
+  triggerDownload(response.data, 'kyc-export.csv');
+  return response.data;
+};
+
+export const exportAdminAuditLogs = async (params = {}) => {
+  const { after, before, limit, ...filters } = params;
+  const response = await api.get('/admin/audit-logs/export', { params: filters, responseType: 'blob' });
+  triggerDownload(response.data, 'audit-logs-export.csv');
+  return response.data;
 };
 
 export const getAdminSystemHealth = async () => {
