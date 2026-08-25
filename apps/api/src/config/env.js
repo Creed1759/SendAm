@@ -105,7 +105,7 @@ module.exports = {
     coinGeckoBaseUrl: process.env.COINGECKO_BASE_URL || 'https://api.coingecko.com/api/v3',
     coinGeckoApiKey: process.env.COINGECKO_API_KEY,
     exchangeRateApiKey: process.env.EXCHANGERATE_API_KEY,
-    supportedFiatCurrencies: (process.env.SUPPORTED_FIAT_CURRENCIES || 'NGN')
+    supportedFiatCurrencies: (process.env.SUPPORTED_FIAT_CURRENCIES || 'NGN,USD,EUR,GBP')
       .split(',')
       .map((currency) => currency.trim().toUpperCase())
       .filter(Boolean),

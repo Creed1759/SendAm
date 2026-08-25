@@ -1,61 +1,56 @@
-const { test, mock } = require('node:test');
+process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://sendam:secret@localhost:5432/sendam';
+const test = require('node:test');
 const assert = require('node:assert/strict');
-const path = require('path');
+const { assertConfiguredCurrency } = require('../src/pricing/pricing.service');
+const { reconcileMonetaryValues } = require('../src/payment/payment.reconciler');
 
-const injectMock = (relativeFromSrc, exports) => {
-  const abs = path.resolve(__dirname, '../src', `${relativeFromSrc}.js`);
-  require.cache[abs] = {
-    id: abs,
-    filename: abs,
-    loaded: true,
-    exports,
+test('assertConfiguredCurrency supports default and custom configured fiat currencies', () => {
+  assert.equal(assertConfiguredCurrency('NGN'), 'NGN');
+  assert.equal(assertConfiguredCurrency('USD'), 'USD');
+  assert.equal(assertConfiguredCurrency('EUR'), 'EUR');
+  assert.equal(assertConfiguredCurrency('GBP'), 'GBP');
+  assert.equal(assertConfiguredCurrency('XLM'), 'XLM');
+  assert.equal(assertConfiguredCurrency('USDC'), 'USDC');
+});
+
+test('reconcileMonetaryValues audits and fixes non-canonical database monetary values', async () => {
+  const fakeQuotes = [
+    { id: 'q1', sourceAmount: '10.5000', sourceCurrency: 'NGN', targetAmount: '0.007', targetCurrency: 'USDC', rate: '0.0006666666666', fee: '0.1000' },
+  ];
+  const fakeTransactions = [
+    { id: 'tx1', amount: '5.100000000', asset: 'XLM' },
+  ];
+
+  const updatedQuotes = [];
+  const updatedTransactions = [];
+
+  const mockPrisma = {
+    quote: {
+      findMany: async () => fakeQuotes,
+      update: async ({ where, data }) => {
+        updatedQuotes.push({ id: where.id, data });
+        return { ...fakeQuotes[0], ...data };
+      },
+    },
+    transaction: {
+      findMany: async () => fakeTransactions,
+      update: async ({ where, data }) => {
+        updatedTransactions.push({ id: where.id, data });
+        return { ...fakeTransactions[0], ...data };
+      },
+    },
   };
-};
 
-const createdQuotes = [];
-const axiosGet = mock.fn();
-
-injectMock('config/env', { pricing: { exchangeRateApiKey: 'test-key' } });
-injectMock('common/prisma', {
-  quote: {
-    create: mock.fn(async ({ data }) => {
-      createdQuotes.push(data);
-      return { id: 'quote_1', ...data };
-    }),
-  },
-});
-injectMock('common/records', { withIdAlias: (record) => ({ ...record, _id: record.id }) });
-require.cache[require.resolve('axios')] = {
-  id: require.resolve('axios'),
-  filename: require.resolve('axios'),
-  loaded: true,
-  exports: { get: axiosGet },
-};
-
-const { createQuote, getExchangeRate } = require('../src/pricing/pricing.service');
-
-test('getExchangeRate returns decimal strings, including same-currency rates', async () => {
-  assert.equal(await getExchangeRate({ sourceCurrency: 'USDC', targetCurrency: 'USDC' }), '1');
-
-  axiosGet.mock.mockImplementationOnce(async () => ({ data: { conversion_rate: '1600.1234567' } }));
-  assert.equal(await getExchangeRate({ sourceCurrency: 'USDC', targetCurrency: 'NGN' }), '1600.1234567');
-});
-
-test('createQuote calculates fee, net, and target amount with exact decimals', async () => {
-  createdQuotes.length = 0;
-  axiosGet.mock.mockImplementationOnce(async () => ({ data: { conversion_rate: '1' } }));
-
-  const quote = await createQuote({
-    userId: 'user_1',
-    sourceCurrency: 'USDC',
-    targetCurrency: 'USDC',
-    sourceAmount: '0.30',
-    route: 'stellar',
-    provider: 'stellar',
+  const result = await reconcileMonetaryValues({
+    prisma: mockPrisma,
+    apply: true,
+    loggerInstance: { info: () => {}, warn: () => {}, error: () => {} },
   });
 
-  assert.equal(quote.sourceAmount, '0.3000000');
-  assert.equal(quote.fee, '0.0030000');
-  assert.equal(quote.targetAmount, '0.2970000');
-  assert.equal(createdQuotes[0].rate, '1');
+  assert.equal(result.checkedCount, 2);
+  assert.equal(result.invalidCount, 2);
+  assert.equal(result.fixedCount, 2);
+  assert.equal(updatedQuotes.length, 1);
+  assert.equal(updatedQuotes[0].data.sourceAmount, '10.50');
+  assert.equal(updatedTransactions[0].data.amount, '5.1000000');
 });

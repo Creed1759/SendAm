@@ -19,8 +19,88 @@ const createWallet = () => {
 const validateAddress = (address) => {
   return (
     typeof address === "string" &&
-    StellarSdk.StrKey.isValidEd25519PublicKey(address)
+    (StellarSdk.StrKey.isValidEd25519PublicKey(address) ||
+      StellarSdk.StrKey.isValidMed25519PublicKey(address))
   );
+};
+
+const isMuxedAddress = (address) => {
+  return (
+    typeof address === "string" &&
+    StellarSdk.StrKey.isValidMed25519PublicKey(address)
+  );
+};
+
+const getBaseAccountId = (destination) => {
+  if (isMuxedAddress(destination)) {
+    const decoded = StellarSdk.StrKey.decodeMed25519PublicKey(destination);
+    return StellarSdk.StrKey.encodeEd25519PublicKey(decoded.slice(0, 32));
+  }
+  return destination;
+};
+
+const validateMemo = ({ memo, memoType = "text" }) => {
+  if (memo === undefined || memo === null || memo === "") return true;
+  const type = String(memoType || "text").toLowerCase();
+  if (!["text", "id", "hash", "return"].includes(type)) {
+    throw new Error(`Unsupported memo type: ${memoType}. Must be text, id, hash, or return.`);
+  }
+  if (type === "text") {
+    if (Buffer.byteLength(String(memo), "utf8") > 28) {
+      throw new Error("Invalid text memo: maximum 28 bytes allowed.");
+    }
+  } else if (type === "id") {
+    const str = String(memo).trim();
+    if (!/^\d+$/.test(str)) {
+      throw new Error("Invalid id memo: must be a numeric integer string.");
+    }
+    try {
+      const val = BigInt(str);
+      if (val < 0n || val > 18446744073709551615n) {
+        throw new Error("Invalid id memo: must fit in an unsigned 64-bit integer.");
+      }
+    } catch (_e) {
+      throw new Error("Invalid id memo: must fit in an unsigned 64-bit integer.");
+    }
+  } else if (type === "hash" || type === "return") {
+    if (Buffer.isBuffer(memo)) {
+      if (memo.length !== 32) {
+        throw new Error(`Invalid ${type} memo: Buffer must be 32 bytes.`);
+      }
+    } else if (typeof memo === "string") {
+      const hex = memo.trim();
+      if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
+        throw new Error(`Invalid ${type} memo: must be a 32-byte hex string (64 characters).`);
+      }
+    } else {
+      throw new Error(`Invalid ${type} memo: must be a 32-byte hex string or Buffer.`);
+    }
+  }
+  return true;
+};
+
+const buildStellarMemo = ({ memo, memoType = "text" }) => {
+  if (memo === undefined || memo === null || memo === "") return null;
+  validateMemo({ memo, memoType });
+  const type = String(memoType || "text").toLowerCase();
+  if (type === "text") return StellarSdk.Memo.text(String(memo));
+  if (type === "id") return StellarSdk.Memo.id(String(memo).trim());
+  if (type === "hash") {
+    const buf = Buffer.isBuffer(memo) ? memo : Buffer.from(String(memo).trim(), "hex");
+    return StellarSdk.Memo.hash(buf);
+  }
+  if (type === "return") {
+    const buf = Buffer.isBuffer(memo) ? memo : Buffer.from(String(memo).trim(), "hex");
+    return StellarSdk.Memo.return(buf);
+  }
+  return null;
+};
+
+const redactMemo = (memo) => {
+  if (memo === undefined || memo === null || memo === "") return "";
+  const str = String(memo);
+  if (str.length <= 4) return "****";
+  return `${str.slice(0, 2)}***${str.slice(-2)}`;
 };
 
 const getTransactionUrl = (txHash) => {
@@ -162,10 +242,20 @@ const submitPayment = async ({
   destination,
   amount,
   asset = "XLM",
+  memo,
+  memoType,
 }) => {
   try {
     if (!validateAddress(destination)) {
-      throw new Error("Destination must be a valid Stellar public key.");
+      throw new Error("Destination must be a valid Stellar public key or muxed address.");
+    }
+
+    if (isMuxedAddress(destination) && memo !== undefined && memo !== null && memo !== "") {
+      throw new Error("Muxed account destination already includes an embedded ID; providing a separate memo is conflicting.");
+    }
+
+    if (memo !== undefined && memo !== null && memo !== "") {
+      validateMemo({ memo, memoType });
     }
 
     const normalizedAmount = assertValidAmount(amount, asset);
@@ -173,9 +263,11 @@ const submitPayment = async ({
     const sourceKeypair = StellarSdk.Keypair.fromSecret(secretKey);
     const sourcePublicKey = sourceKeypair.publicKey();
 
+    const baseDestination = getBaseAccountId(destination);
+
     // Check if destination exists (once; this doesn't change between retries).
     try {
-      await server.loadAccount(destination);
+      await server.loadAccount(baseDestination);
     } catch (_e) {
       throw new Error("Destination account does not exist or is not funded.");
     }
@@ -186,25 +278,30 @@ const submitPayment = async ({
         ? StellarSdk.Networks.TESTNET
         : StellarSdk.Networks.PUBLIC;
 
+    const stellarMemo = buildStellarMemo({ memo, memoType });
+
     // Reload the account (fresh sequence), rebuild, sign, and submit on each
     // attempt. Retry only on tx_bad_seq — any other failure is terminal.
     let lastError;
     for (let attempt = 1; attempt <= SEND_MAX_ATTEMPTS; attempt += 1) {
       const sourceAccount = await server.loadAccount(sourcePublicKey);
 
-      const transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
+      const builder = new StellarSdk.TransactionBuilder(sourceAccount, {
         fee,
         networkPassphrase,
-      })
-        .addOperation(
-          StellarSdk.Operation.payment({
-            destination,
-            asset: resolveAsset(asset),
-            amount: normalizedAmount,
-          }),
-        )
-        .setTimeout(30)
-        .build();
+      }).addOperation(
+        StellarSdk.Operation.payment({
+          destination,
+          asset: resolveAsset(asset),
+          amount: normalizedAmount,
+        }),
+      );
+
+      if (stellarMemo) {
+        builder.addMemo(stellarMemo);
+      }
+
+      const transaction = builder.setTimeout(30).build();
 
       transaction.sign(sourceKeypair);
 
@@ -313,6 +410,11 @@ module.exports = {
   establishTrustline,
   resolveAsset,
   validateAddress,
+  isMuxedAddress,
+  getBaseAccountId,
+  validateMemo,
+  buildStellarMemo,
+  redactMemo,
   fundTestnetAccount,
   getTransactionUrl,
 };

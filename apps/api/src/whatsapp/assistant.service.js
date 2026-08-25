@@ -28,18 +28,25 @@ const resolveUser = async (phoneNumber, whatsappName) => {
 
 const parsePaymentIntent = (text) => {
   const normalized = String(text || '').trim();
-  const sendMatch = normalized.match(
+  const memoMatch = normalized.match(/(?:\bwith\s+memo\b|\bmemo\b)(?::|\s+)?(?:(text|id|hash|return):)?\s*([^\s]+)/i);
+  let memo;
+  let memoType;
+  let textWithoutMemo = normalized;
+  if (memoMatch) {
+    memoType = memoMatch[1] ? memoMatch[1].toLowerCase() : 'text';
+    memo = memoMatch[2];
+    textWithoutMemo = normalized.replace(memoMatch[0], '').trim();
+  }
+
+  const sendMatch = textWithoutMemo.match(
     /(?:send|pay|transfer)\s+([\d.]+)\s*((?!to\b)[a-zA-Z]{2,5})?\s+(?:to\s+)?(.+)/i
   );
   if (!sendMatch) return null;
   return {
     amount: sendMatch[1],
-    // No unit specified — name the native asset here rather than leaving it
-    // undefined. payment.orchestrator resolves the same default (NATIVE_ASSET),
-    // but the confirmation message is built from this value, so leaving it
-    // undefined showed the user "Amount: 10 undefined".
     asset: sendMatch[2] ? sendMatch[2].toUpperCase() : NATIVE_ASSET,
     recipient: sendMatch[3].trim(),
+    ...(memo ? { memo, memoType } : {}),
   };
 };
 
@@ -64,6 +71,8 @@ const requestConfirmation = async ({ phoneNumber, user, intent, notify }) => {
     asset: intent.asset,
     destination: recipient.destination,
     alias: recipient.label,
+    memo: intent.memo,
+    memoType: intent.memoType,
     routeType: 'domestic',
     requestedAt: new Date(),
   };
@@ -72,10 +81,13 @@ const requestConfirmation = async ({ phoneNumber, user, intent, notify }) => {
     data: { pendingSend },
   });
 
-  await notify(
-    phoneNumber,
-    `Please confirm this payment:\nAmount: ${intent.amount} ${intent.asset}\nTo: ${recipient.label}\nReply with your PIN to send, or "no" to cancel.`
-  );
+  let confirmMsg = `Please confirm this payment:\nAmount: ${intent.amount} ${intent.asset}\nTo: ${recipient.label}`;
+  if (intent.memo) {
+    confirmMsg += `\nMemo (${intent.memoType || 'text'}): ${intent.memo}`;
+  }
+  confirmMsg += `\nReply with your PIN to send, or "no" to cancel.`;
+
+  await notify(phoneNumber, confirmMsg);
 };
 
 const handlePendingPin = async ({ phoneNumber, user, text, notify }) => {
@@ -120,6 +132,8 @@ const handlePendingPin = async ({ phoneNumber, user, text, notify }) => {
     destination: pending.destination,
     amount: pending.amount,
     asset: pending.asset,
+    memo: pending.memo,
+    memoType: pending.memoType,
     routeType: pending.routeType,
   });
 
