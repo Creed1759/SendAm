@@ -1,6 +1,6 @@
 const walletService = require('../wallet/wallet.service');
 const { validateAddress } = require('../wallet/stellar.adapter');
-const { createQuote } = require('../pricing/pricing.service');
+const { createQuote, validateQuoteForExecution, QUOTE_STATUS } = require('../pricing/pricing.service');
 const { writeAuditLog } = require('../common/audit.service');
 const { enforceTransactionPolicy } = require('../compliance/compliance.service');
 const { markTransactionFailed } = require('./markFailed');
@@ -35,6 +35,13 @@ const executePayment = async ({
   sourceCountry = 'NG',
   destinationCountry = 'NG',
   routeType,
+  // Optional: settle against a previously created quote. When omitted a fresh
+  // quote is minted atomically with the payment transaction. `quoteId` is
+  // validated (ownership, asset pair, amount, rate, expiration) before settle.
+  quoteId,
+  // Optional client idempotency key: retrying with the same key returns the
+  // existing active quote/transaction instead of creating duplicates.
+  idempotencyKey,
 }) => {
   const senderUser = sender;
   if (!senderUser) throw new Error('Sender not found.');
@@ -51,8 +58,12 @@ const executePayment = async ({
     || (sourceCountry && destinationCountry && sourceCountry !== destinationCountry ? 'cross_border' : 'domestic');
   const normalizedAmount = assertValidAmount(amount, effectiveAsset);
 
-  const { quote, transaction } = await (prisma.$transaction ? prisma.$transaction(async (tx) => {
-    const comp = await enforceTransactionPolicy({
+  // Core runs inside a single Prisma transaction so the quote and the payment
+  // reservation commit together (or not at all). `tx` is the active transaction
+  // client and must be threaded into every write — especially createQuote — so a
+  // rollback cannot strand an orphan quote.
+  const runCore = async (tx) => {
+    const compliance = await enforceTransactionPolicy({
       user: senderUser,
       amount: normalizedAmount,
       asset: effectiveAsset,
@@ -60,72 +71,94 @@ const executePayment = async ({
       destinationCountry,
       tx,
     });
-    const q = await createQuote({
-      userId: senderUser.id,
-      sourceCurrency: effectiveAsset,
-      targetCurrency: effectiveAsset,
-      sourceAmount: normalizedAmount,
-      route: rail,
-      provider: rail,
-    });
-    const t = await tx.transaction.create({
-      data: {
+
+    // Idempotency short-circuit: an earlier attempt with this key already
+    // reserved a transaction. Return it (and its quote) without creating
+    // duplicates or re-consuming a quote.
+    if (idempotencyKey) {
+      const prior = await tx.transaction.findUnique({ where: { idempotencyKey } });
+      if (prior) {
+        const quote = prior.quoteId ? await tx.quote.findUnique({ where: { id: prior.quoteId } }) : null;
+        return { compliance, quote, transaction: prior };
+      }
+    }
+
+    let quote;
+    if (quoteId) {
+      const existing = await tx.quote.findUnique({ where: { id: quoteId } });
+      await validateQuoteForExecution({
+        quote: existing,
         userId: senderUser.id,
-        type: 'send',
-        amount: normalizedAmount,
         asset: effectiveAsset,
-        recipientPhoneNumber,
-        destination,
-        rail,
-        routeType: effectiveRouteType,
-        quoteId: q.id,
-        status: 'processing',
-        metadata: {
-          fee: calculateFee(normalizedAmount, effectiveAsset),
-          userHiddenRail: true,
-          riskScore: comp.riskScore,
-        },
-      },
-    });
-    return { compliance: comp, quote: q, transaction: t };
-  }) : (async () => {
-    const comp = await enforceTransactionPolicy({
-      user: senderUser,
-      amount: normalizedAmount,
-      asset: effectiveAsset,
-      routeType: effectiveRouteType,
-      destinationCountry,
-      tx: prisma,
-    });
-    const q = await createQuote({
-      userId: senderUser.id,
-      sourceCurrency: effectiveAsset,
-      targetCurrency: effectiveAsset,
-      sourceAmount: normalizedAmount,
-      route: rail,
-      provider: rail,
-    });
-    const t = await prisma.transaction.create({
-      data: {
+        amount: normalizedAmount,
+      });
+      // Safe to settle: claim the quote so a retry with the same id is rejected.
+      quote = await tx.quote.update({
+        where: { id: quoteId },
+        data: { status: QUOTE_STATUS.CONSUMED },
+      });
+    } else {
+      quote = await createQuote({
         userId: senderUser.id,
-        type: 'send',
-        amount: normalizedAmount,
-        asset: effectiveAsset,
-        recipientPhoneNumber,
-        destination,
-        rail,
-        routeType: effectiveRouteType,
-        quoteId: q.id,
-        status: 'processing',
-        metadata: {
-          fee: calculateFee(normalizedAmount, effectiveAsset),
-          userHiddenRail: true,
-          riskScore: comp.riskScore,
+        sourceCurrency: effectiveAsset,
+        targetCurrency: effectiveAsset,
+        sourceAmount: normalizedAmount,
+        route: rail,
+        provider: rail,
+        idempotencyKey,
+        tx,
+      });
+    }
+
+    let transaction;
+    try {
+      transaction = await tx.transaction.create({
+        data: {
+          userId: senderUser.id,
+          type: 'send',
+          amount: normalizedAmount,
+          asset: effectiveAsset,
+          recipientPhoneNumber,
+          destination,
+          rail,
+          routeType: effectiveRouteType,
+          quoteId: quote.id,
+          idempotencyKey,
+          status: 'processing',
+          metadata: {
+            fee: calculateFee(normalizedAmount, effectiveAsset),
+            userHiddenRail: true,
+            riskScore: compliance.riskScore,
+          },
         },
-      },
-    });
-    return { compliance: comp, quote: q, transaction: t };
-  })());
+      });
+    } catch (error) {
+      // A concurrent retry may have already reserved the transaction row by
+      // the time we insert. Treat the unique violation as "already created"
+      // and return the existing reservation instead of erroring.
+      if (error?.code === 'P2002' && idempotencyKey) {
+        const existing = await tx.transaction.findUnique({ where: { idempotencyKey } });
+        if (existing) {
+          const existingQuote = existing.quoteId ? await tx.quote.findUnique({ where: { id: existing.quoteId } }) : null;
+          return { compliance, quote: existingQuote, transaction: existing };
+        }
+      }
+      throw error;
+    }
+    return { compliance, quote, transaction };
+  };
+
+  const { quote, transaction } = await (prisma.$transaction ? prisma.$transaction(runCore) : runCore(prisma));
+
+  // A previously reserved transaction that already settled: return it as-is
+  // rather than re-submitting (prevents double-spend on client retries).
+  if (transaction.status === 'success') {
+    return {
+      transaction: withIdAlias(transaction),
+      quote,
+      receipt: buildReceipt({ transaction }),
+    };
+  }
 
   let activeTransaction = transaction;
 

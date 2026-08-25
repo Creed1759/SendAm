@@ -22,6 +22,8 @@ const mocks = {
   validateAddress:          mock.fn(),
   enforceTransactionPolicy: mock.fn(),
   createQuote:              mock.fn(),
+  validateQuoteForExecution: mock.fn(),
+  requote:                  mock.fn(),
   createOrGetWallet:        mock.fn(),
   submitPayment:            mock.fn(),
   writeAuditLog:            mock.fn(),
@@ -29,18 +31,48 @@ const mocks = {
   withIdAlias:              mock.fn((x) => x),
   prismaTxCreate:           mock.fn(),
   prismaTxUpdate:           mock.fn(),
+  prismaTxFindUnique:       mock.fn(),
+  prismaQuoteCreate:        mock.fn(),
+  prismaQuoteFindUnique:    mock.fn(),
+  prismaQuoteUpdate:        mock.fn(),
+  QUOTE_STATUS:             { ACTIVE: 'active', CONSUMED: 'consumed', EXPIRED: 'expired', REPLACED: 'replaced', ORPHANED: 'orphaned' },
 };
 
-const resetMockCalls = () => { for (const fn of Object.values(mocks)) fn.mock.resetCalls(); };
+const resetMockCalls = () => { for (const fn of Object.values(mocks)) fn.mock?.resetCalls?.(); };
 
-injectMock('wallet/stellar.adapter',     () => ({ validateAddress: mocks.validateAddress }));
+// The transaction client handed to prisma.$transaction — used to prove that
+// quote persistence now flows through the active transaction, not the global
+// client (the root-cause of orphan quotes on rollback).
+const txMock = {
+  transaction: {
+    create: mocks.prismaTxCreate,
+    update: mocks.prismaTxUpdate,
+    findUnique: mocks.prismaTxFindUnique,
+  },
+  quote: {
+    create: mocks.prismaQuoteCreate,
+    findUnique: mocks.prismaQuoteFindUnique,
+    update: mocks.prismaQuoteUpdate,
+  },
+};
+
+injectMock('wallet/stellar.adapter',        () => ({ validateAddress: mocks.validateAddress }));
 injectMock('compliance/compliance.service', () => ({ enforceTransactionPolicy: mocks.enforceTransactionPolicy }));
-injectMock('pricing/pricing.service',    () => ({ createQuote: mocks.createQuote }));
-injectMock('wallet/wallet.service',      () => ({ createOrGetWallet: mocks.createOrGetWallet, submitPayment: mocks.submitPayment }));
-injectMock('common/audit.service',       () => ({ writeAuditLog: mocks.writeAuditLog }));
-injectMock('payment/markFailed',         () => ({ markTransactionFailed: mocks.markTransactionFailed }));
-injectMock('common/records',             () => ({ withIdAlias: mocks.withIdAlias }));
-injectMock('common/prisma',              () => ({ transaction: { create: mocks.prismaTxCreate, update: mocks.prismaTxUpdate } }));
+injectMock('pricing/pricing.service',       () => ({
+  createQuote: mocks.createQuote,
+  validateQuoteForExecution: mocks.validateQuoteForExecution,
+  requote: mocks.requote,
+  QUOTE_STATUS: mocks.QUOTE_STATUS,
+}));
+injectMock('wallet/wallet.service',          () => ({ createOrGetWallet: mocks.createOrGetWallet, submitPayment: mocks.submitPayment }));
+injectMock('common/audit.service',           () => ({ writeAuditLog: mocks.writeAuditLog }));
+injectMock('payment/markFailed',             () => ({ markTransactionFailed: mocks.markTransactionFailed }));
+injectMock('common/records',                 () => ({ withIdAlias: mocks.withIdAlias }));
+injectMock('common/prisma',                  () => ({
+  $transaction: async (fn) => fn(txMock),
+  transaction: txMock.transaction,
+  quote: txMock.quote,
+}));
 
 // ---------------------------------------------------------------------------
 // SUT – loaded after all mocks are in place
@@ -64,7 +96,7 @@ const txRow   = { id: 'tx_1', userId: 1, type: 'send', amount: '100.0000000', as
 const wallet  = { id: 'wallet_1', publicKey: dest, encryptedSecretKey: 'encrypted' };
 const submitOk = { txHash: 'abc123', explorerUrl: 'https://stellar.expert/abc123' };
 const successTx = { ...txRow, status: 'success', txHash: 'abc123', explorerUrl: 'https://stellar.expert/abc123' };
-const quote   = { id: 'quote_1' };
+const quote   = { id: 'quote_1', status: 'active' };
 
 const setUpHappyPath = () => {
   mocks.validateAddress.mock.mockImplementation(() => true);
@@ -75,6 +107,13 @@ const setUpHappyPath = () => {
   mocks.submitPayment.mock.mockImplementation(() => submitOk);
   mocks.prismaTxUpdate.mock.mockImplementation(() => successTx);
   mocks.writeAuditLog.mock.mockImplementation(() => {});
+  mocks.validateQuoteForExecution.mock.mockImplementation(() => quote);
+};
+
+const quoteError = (code, message) => {
+  const e = new Error(message || code);
+  e.code = code;
+  return e;
 };
 
 // ---------------------------------------------------------------------------
@@ -120,6 +159,18 @@ test('executePayment: happy path returns transaction, quote, and receipt', async
   assert.equal(result.receipt.status, 'success');
 });
 
+test('executePayment: quote is persisted through the active transaction client (no orphan on rollback)', async () => {
+  resetMockCalls();
+  setUpHappyPath();
+
+  await executePayment(baseInput);
+
+  // createQuote must receive the transactional client, not the global prisma.
+  assert.equal(mocks.createQuote.mock.callCount(), 1);
+  const passedTx = mocks.createQuote.mock.calls[0].arguments[0].tx;
+  assert.equal(passedTx, txMock);
+});
+
 // ---------------------------------------------------------------------------
 // FAILURE PATH 1: compliance rejection → no transaction row is written
 // ---------------------------------------------------------------------------
@@ -136,6 +187,7 @@ test('executePayment: compliance rejection does NOT write a transaction row and 
   );
 
   assert.equal(mocks.prismaTxCreate.mock.callCount(), 0);
+  assert.equal(mocks.createQuote.mock.callCount(), 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -145,7 +197,6 @@ test('executePayment: compliance rejection does NOT write a transaction row and 
 test('executePayment: adapter submit failure marks transaction failed and throws the ORIGINAL error', async () => {
   resetMockCalls();
   setUpHappyPath();
-  // Override submitPayment to fail
   mocks.submitPayment.mock.mockImplementation(async () => {
     throw new Error('tx_bad_seq');
   });
@@ -160,4 +211,87 @@ test('executePayment: adapter submit failure marks transaction failed and throws
   const call = mocks.markTransactionFailed.mock.calls[0];
   assert.equal(call.arguments[0].transactionId, 'tx_1');
   assert.equal(call.arguments[0].error.message, 'tx_bad_seq');
+});
+
+// ---------------------------------------------------------------------------
+// Quote validation at execution: expired / mismatched quotes cannot be submitted
+// ---------------------------------------------------------------------------
+const withQuote = (overrides = {}) => ({ id: 'quote_x', status: 'active', expiresAt: new Date(Date.now() + 60000), ...overrides });
+
+test('executePayment: rejects an expired quote and never creates a transaction', async () => {
+  resetMockCalls();
+  setUpHappyPath();
+  mocks.prismaQuoteFindUnique.mock.mockImplementation(() => withQuote({ expiresAt: new Date(Date.now() - 1000) }));
+  mocks.validateQuoteForExecution.mock.mockImplementation(() => { throw quoteError('QUOTE_EXPIRED', 'Quote has expired.'); });
+
+  await assert.rejects(() => executePayment({ ...baseInput, quoteId: 'quote_x' }), { code: 'QUOTE_EXPIRED' });
+
+  assert.equal(mocks.prismaTxCreate.mock.callCount(), 0);
+  assert.equal(mocks.prismaQuoteUpdate.mock.callCount(), 0);
+});
+
+test('executePayment: rejects a quote with a mismatched amount', async () => {
+  resetMockCalls();
+  setUpHappyPath();
+  mocks.prismaQuoteFindUnique.mock.mockImplementation(() => withQuote());
+  mocks.validateQuoteForExecution.mock.mockImplementation(() => { throw quoteError('QUOTE_AMOUNT', 'Quote amount does not match the payment.'); });
+
+  await assert.rejects(() => executePayment({ ...baseInput, quoteId: 'quote_x' }), { code: 'QUOTE_AMOUNT' });
+  assert.equal(mocks.prismaTxCreate.mock.callCount(), 0);
+});
+
+test('executePayment: rejects a quote owned by another user', async () => {
+  resetMockCalls();
+  setUpHappyPath();
+  mocks.prismaQuoteFindUnique.mock.mockImplementation(() => withQuote({ userId: 999 }));
+  mocks.validateQuoteForExecution.mock.mockImplementation(() => { throw quoteError('QUOTE_OWNERSHIP', 'Quote does not belong to this user.'); });
+
+  await assert.rejects(() => executePayment({ ...baseInput, quoteId: 'quote_x' }), { code: 'QUOTE_OWNERSHIP' });
+  assert.equal(mocks.prismaTxCreate.mock.callCount(), 0);
+});
+
+test('executePayment: rejects a quote whose asset pair does not match', async () => {
+  resetMockCalls();
+  setUpHappyPath();
+  mocks.prismaQuoteFindUnique.mock.mockImplementation(() => withQuote());
+  mocks.validateQuoteForExecution.mock.mockImplementation(() => { throw quoteError('QUOTE_ASSET_PAIR', 'Quote asset pair does not match the payment.'); });
+
+  await assert.rejects(() => executePayment({ ...baseInput, quoteId: 'quote_x' }), { code: 'QUOTE_ASSET_PAIR' });
+  assert.equal(mocks.prismaTxCreate.mock.callCount(), 0);
+});
+
+test('executePayment: a valid quote is consumed atomically with the transaction', async () => {
+  resetMockCalls();
+  setUpHappyPath();
+  const activeQuote = withQuote();
+  mocks.prismaQuoteFindUnique.mock.mockImplementation(() => activeQuote);
+  mocks.validateQuoteForExecution.mock.mockImplementation(() => activeQuote);
+  mocks.prismaQuoteUpdate.mock.mockImplementation(() => ({ ...activeQuote, status: 'consumed' }));
+
+  await executePayment({ ...baseInput, quoteId: 'quote_x' });
+
+  assert.equal(mocks.prismaQuoteUpdate.mock.callCount(), 1);
+  const updateCall = mocks.prismaQuoteUpdate.mock.calls[0];
+  assert.equal(updateCall.arguments[0].where.id, 'quote_x');
+  assert.equal(updateCall.arguments[0].data.status, 'consumed');
+  assert.equal(mocks.prismaTxCreate.mock.callCount(), 1);
+  assert.equal(mocks.prismaTxCreate.mock.calls[0].arguments[0].data.quoteId, 'quote_x');
+});
+
+// ---------------------------------------------------------------------------
+// Idempotency: retrying a request must not create duplicate quotes/transactions
+// ---------------------------------------------------------------------------
+test('executePayment: same idempotencyKey returns the existing successful transaction without re-submitting', async () => {
+  resetMockCalls();
+  setUpHappyPath();
+  const prior = { ...successTx, idempotencyKey: 'req_42' };
+  mocks.prismaTxFindUnique.mock.mockImplementation(() => prior);
+  mocks.prismaQuoteFindUnique.mock.mockImplementation(() => withQuote());
+
+  const result = await executePayment({ ...baseInput, idempotencyKey: 'req_42' });
+
+  assert.equal(mocks.prismaTxCreate.mock.callCount(), 0, 'no duplicate transaction created');
+  assert.equal(mocks.createQuote.mock.callCount(), 0, 'no duplicate quote created');
+  assert.equal(mocks.submitPayment.mock.callCount(), 0, 'must not re-submit a settled payment');
+  assert.equal(result.transaction.id, 'tx_1');
 });

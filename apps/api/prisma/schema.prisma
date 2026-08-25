@@ -106,6 +106,7 @@ model Wallet {
 model Transaction {
   id                    String   @id @default(cuid())
   userId                String
+  idempotencyKey        String?  @unique
   type                  String
   /// Canonical decimal string validated by src/utils/money.js; never serialize monetary values as floats.
   amount                String
@@ -383,6 +384,17 @@ model Quote {
   fee            String?
   provider       String?
   route          String?
+  /// Lifecycle state of the quote. `active` quotes can be submitted; `consumed`
+  /// quotes have already settled a payment; `expired`/`replaced`/`orphaned`
+  /// quotes must be rejected at execution. See pricing.service.js.
+  status         String   @default("active")
+  /// Client-supplied idempotency key. Reusing it returns the existing active
+  /// quote instead of creating a duplicate on retry.
+  idempotencyKey String?  @unique
+  /// Set when this quote supersedes an earlier one via requote().
+  replacedById   String?
+  replacedBy     Quote?   @relation("QuoteReplacement", fields: [replacedById], references: [id])
+  replaces       Quote[]  @relation("QuoteReplacement")
   expiresAt      DateTime
   metadata       Json     @default("{}")
   createdAt      DateTime @default(now())
@@ -393,6 +405,7 @@ model Quote {
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([status])
 }
 
 model AdminRole {
