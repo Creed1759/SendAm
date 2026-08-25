@@ -27,7 +27,13 @@ module.exports = {
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN,
     // Meta App Secret, used to verify the X-Hub-Signature-256 header on
     // inbound webhook POSTs so forged events can't drive money movement.
-    appSecret: process.env.WHATSAPP_APP_SECRET,
+    // Support rotated secrets: appSecret returns the primary secret,
+    // and appSecrets returns the array of all secrets configured for rotation.
+    appSecret: (process.env.WHATSAPP_APP_SECRET || '').split(',')[0]?.trim(),
+    appSecrets: (process.env.WHATSAPP_APP_SECRET || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
     callbackUrl: process.env.WHATSAPP_CALLBACK_URL,
     businessAccountId: process.env.WHATSAPP_BUSINESS_ACCOUNT_ID,
     graphApiVersion: process.env.META_GRAPH_API_VERSION,

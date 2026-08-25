@@ -11,6 +11,7 @@ const complianceRoutes = require('./compliance/compliance.routes');
 const pricingRoutes = require('./pricing/pricing.routes');
 const simRoutes = require('./routes/sim.routes');
 const authRoutes = require('./routes/auth.routes');
+const receiptRoutes = require('./routes/receipt.routes');
 
 const errorHandler = require('./middlewares/errorHandler');
 const notFound = require('./middlewares/notFound');
@@ -96,6 +97,7 @@ app.get('/health', async (req, res) => {
 // Routes
 app.use('/webhook', webhookRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/receipts', receiptRoutes);
 
 // The REST wallet API requires a SEP-10 application session. The feature flag
 // remains an operational rollout and incident-response kill switch.

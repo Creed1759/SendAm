@@ -94,10 +94,30 @@ and that the proxy preserves the raw body. Do not “temporarily” disable
 signature verification.
 
 Rotate the system-user token by updating the API and GitHub secrets, testing an
-outbound message, then revoking the old token. Rotate the app secret during a
-coordinated window because Meta begins signing with the new value; update the
-API secret and immediately run the configuration workflow and a real-message
-test. Rotate the verify token by updating the deployment and workflow secret
+outbound message, then revoking the old token.
+
+### Safe Webhook App Secret Rotation
+
+SendAm supports safe, zero-downtime rotation of the Meta `WHATSAPP_APP_SECRET` by allowing multiple comma-separated keys to be active simultaneously (e.g., `WHATSAPP_APP_SECRET=new_active_secret,previous_verification_secret`).
+
+#### Step-by-Step Rotation Playbook:
+
+1. **Rollout (Add New Secret):**
+   - Retrieve the new App Secret from the Meta Developer Console.
+   - Update the deployment environment variables: append the new secret as the first/primary key in `WHATSAPP_APP_SECRET` followed by a comma and the existing/old secret. (Format: `WHATSAPP_APP_SECRET=<new_secret>,<old_secret>`).
+   - Re-deploy the API. Incoming webhooks signed with either the old secret or the new secret will verify successfully.
+   - Check the API logs to verify webhooks are being successfully authenticated with the new secret (marked with `{ "verifiedBy": "active" }`) and the old secret (marked with `{ "verifiedBy": "previous_index_1" }`).
+
+2. **Rollback (If Rotation Fails):**
+   - If incoming signatures using the new secret fail or Meta does not recognize the new secret, rollback immediately by removing the new secret and restoring the previous secret as the primary secret in `WHATSAPP_APP_SECRET`.
+   - Re-deploy the API on the original configuration.
+
+3. **Retirement (Remove Old Secret):**
+   - After a bounded rotation window (e.g., 24 hours of successful verification under the new secret and ensuring zero traffic verifying against `previous_index_1`), finalize the rotation.
+   - Remove the old secret from the comma-separated list, leaving only the single new secret in `WHATSAPP_APP_SECRET`.
+   - Re-deploy the API to complete retirement.
+
+Rotate the verify token by updating the deployment and workflow secret
 together, then rerun the workflow.
 
 ## Rollback

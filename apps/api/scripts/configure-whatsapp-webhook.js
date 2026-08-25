@@ -80,7 +80,8 @@ const configureSubscription = async (fetchImpl, env) => {
 
 const verifySignatures = async (fetchImpl, env) => {
   const body = JSON.stringify({ object: 'whatsapp_business_account', entry: [] });
-  const digest = crypto.createHmac('sha256', env.WHATSAPP_APP_SECRET).update(body).digest('hex');
+  const primarySecret = (env.WHATSAPP_APP_SECRET || '').split(',')[0].trim();
+  const digest = crypto.createHmac('sha256', primarySecret).update(body).digest('hex');
   const valid = await fetchImpl(env.WHATSAPP_CALLBACK_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-hub-signature-256': `sha256=${digest}` },
