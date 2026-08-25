@@ -4,6 +4,7 @@ const { sendTextMessage } = require('../services/whatsapp.service');
 const { processMessage } = require('../whatsapp/assistant.service');
 const prisma = require('../common/prisma');
 const { canonicalizePhoneNumber } = require('../utils/validators');
+const { ProviderSkippedError } = require('../compliance/providerErrors');
 
 const transcribeWithDeepgram = async (audioBuffer) => {
   if (!config.voice.deepgramApiKey) {
@@ -89,6 +90,17 @@ const processVoiceMessage = async ({ phoneNumber, whatsappName, mediaId, whatsap
   }
 };
 
+// Best-effort deletion of voice/media data for a customer. We do not persist
+// media blobs (transcripts are stored in VoiceCommand), so this mainly signals
+// deletion to the transcription provider when configured; otherwise it skips.
+const deleteUserData = async (userId) => {
+  const url = config.voice.dataDeletionUrl || process.env.DEEPGRAM_DATA_DELETION_URL;
+  if (!url) throw new ProviderSkippedError('Voice/media data deletion not configured');
+  await axios.post(url, { user_id: userId }, { timeout: 30000, headers: { 'content-type': 'application/json' } });
+  return { status: 'success' };
+};
+
 module.exports = {
   processVoiceMessage,
+  deleteUserData,
 };

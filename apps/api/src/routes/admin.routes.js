@@ -2,6 +2,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const router = express.Router();
 const adminController = require('../controllers/admin.controller');
+const privacyController = require('../compliance/privacy.controller');
 const requireAdmin = require('../middlewares/requireAdmin');
 
 // Tighter limiter on the credential endpoint to slow password brute-forcing,
@@ -23,6 +24,16 @@ router.get('/transactions', requireAdmin('admin.read'), adminController.getTrans
 router.get('/kyc', requireAdmin('compliance.read'), adminController.getKycProfiles);
 router.get('/kyc/export', requireAdmin('compliance.read'), adminController.exportKyc);
 router.get('/audit-logs', requireAdmin('admin.read'), adminController.getAuditLogs);
+
+// Customer privacy lifecycle (admin): review/approve erasure, retry provider
+// deletion, and manage legal holds.
+router.get('/privacy-requests', requireAdmin('compliance.read'), privacyController.listRequests);
+router.get('/privacy-requests/:id', requireAdmin('compliance.read'), privacyController.getRequest);
+router.post('/privacy-requests/:id/approve', requireAdmin('compliance.write'), privacyController.approveRequest);
+router.post('/privacy-requests/:id/retry', requireAdmin('compliance.write'), privacyController.retryProviders);
+router.get('/legal-holds', requireAdmin('compliance.read'), privacyController.listLegalHolds);
+router.post('/legal-holds', requireAdmin('compliance.write'), privacyController.setLegalHold);
+router.delete('/legal-holds/:userId', requireAdmin('compliance.write'), privacyController.releaseLegalHold);
 router.get('/audit-logs/export', requireAdmin('admin.read'), adminController.exportAuditLogs);
 router.get('/system-health', requireAdmin('operations.write'), adminController.getSystemHealth);
 router.get('/administrators', requireAdmin('*'), adminController.listAdministrators);

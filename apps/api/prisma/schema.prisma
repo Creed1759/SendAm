@@ -30,6 +30,11 @@ model User {
   quotes        Quote[]
   restSessions  RestSession[]
 
+  privacyRequests PrivacyRequest[]
+  legalHolds     LegalHold[]
+  anonymizedAt   DateTime?
+
+  @@index([anonymizedAt])
   @@index([createdAt, id])
 }
 
@@ -433,4 +438,68 @@ model SimMessage {
   createdAt   DateTime @default(now())
 
   @@index([phoneNumber, createdAt])
+}
+
+// Privacy request (export or erasure) raised by a customer or an operator.
+// Authorized export is fulfilled directly; erasure requires approval and is
+// blocked while a legal hold is active. `result` holds a redacted summary
+// (counts + provider task statuses) — never the customer's personal data.
+model PrivacyRequest {
+  id            String   @id @default(cuid())
+  userId        String
+  type          String   // 'export' | 'erasure'
+  status        String   @default("pending") // pending|approved|denied|in_progress|completed|failed
+  reason        String?
+  requestedBy   String?  // admin id, or 'self' for customer-initiated
+  approvedBy    String?
+  approvedAt    DateTime?
+  completedAt   DateTime?
+  result        Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user  User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks PrivacyProviderTask[]
+
+  @@index([userId, status])
+  @@index([status])
+  @@index([type])
+}
+
+// Operator-asserted legal hold that suspends erasure for a user. Indefinite
+// unless `expiresAt` is set. Used to satisfy AML/retention obligations.
+model LegalHold {
+  id         String    @id @default(cuid())
+  userId     String
+  reason     String
+  heldBy     String
+  expiresAt  DateTime? // null = indefinite
+  createdAt  DateTime  @default(now())
+  releasedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// One row per external provider a request must propagate to (KYC, messaging,
+// voice/media, monitoring). Failures are recorded with `lastError` and can be
+// retried via the admin retry endpoint.
+model PrivacyProviderTask {
+  id              String   @id @default(cuid())
+  privacyRequestId String
+  provider        String   // smileid | whatsapp | voice | monitoring
+  status          String   @default("pending") // pending | success | skipped | failed
+  attempts        Int      @default(0)
+  lastError       String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  privacyRequest PrivacyRequest @relation(fields: [privacyRequestId], references: [id], onDelete: Cascade)
+
+  @@index([privacyRequestId, status])
+  @@index([provider])
 }
