@@ -9,6 +9,8 @@ const { increment } = require('../observability/metrics');
 const { captureException } = require('../observability/errors');
 const { canonicalizePhoneNumber } = require('../utils/validators');
 
+const { validateWebhookEnvelope, validateInboundMessage, validateStatusEntry } = require('../whatsapp/webhook.validator');
+
 /**
  * Transport adapter for the WhatsApp Cloud API webhook. Its only jobs are
  * acknowledging the event quickly, extracting the inbound WhatsApp message,
@@ -22,7 +24,12 @@ const handleIncomingMessage = async (req, res) => {
   let claimedMessageId = null;
   try {
     const body = req.body;
-    if (body.object !== 'whatsapp_business_account') return res.status(200).send('EVENT_RECEIVED');
+    const envelopeValidation = validateWebhookEnvelope(body);
+    if (!envelopeValidation.valid) {
+      logger.warn('whatsapp_webhook_invalid_envelope', { reason: envelopeValidation.reason });
+      increment('sendam_webhook_events_total', { status: 'invalid_schema' });
+      return res.status(200).send('EVENT_RECEIVED');
+    }
 
     const value = body.entry?.[0]?.changes?.[0]?.value;
 
@@ -36,6 +43,12 @@ const handleIncomingMessage = async (req, res) => {
     const statuses = value?.statuses;
     if (Array.isArray(statuses) && statuses.length) {
       for (const statusEntry of statuses) {
+        const statusValidation = validateStatusEntry(statusEntry);
+        if (!statusValidation.valid) {
+          logger.warn('whatsapp_webhook_invalid_status_entry', { reason: statusValidation.reason, statusEntry });
+          increment('sendam_webhook_events_total', { status: 'invalid_schema' });
+          continue;
+        }
         try {
           await recordDeliveryStatus(statusEntry);
         } catch (statusError) {
@@ -46,7 +59,18 @@ const handleIncomingMessage = async (req, res) => {
     }
 
     const message = value?.messages?.[0];
-    if (!message || !['text', 'audio', 'voice'].includes(message.type)) {
+    if (!message) {
+      return res.status(200).send('EVENT_RECEIVED');
+    }
+
+    const msgValidation = validateInboundMessage(message);
+    if (!msgValidation.valid) {
+      logger.warn('whatsapp_webhook_invalid_message_payload', { reason: msgValidation.reason, message });
+      increment('sendam_webhook_events_total', { status: 'invalid_schema' });
+      return res.status(200).send('EVENT_RECEIVED');
+    }
+
+    if (!['text', 'audio', 'voice'].includes(message.type)) {
       return res.status(200).send('EVENT_RECEIVED');
     }
 

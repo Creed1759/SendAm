@@ -1,5 +1,5 @@
 const walletService = require('../wallet/wallet.service');
-const { validateAddress } = require('../wallet/stellar.adapter');
+const stellarAdapter = require('../wallet/stellar.adapter');
 const { createQuote } = require('../pricing/pricing.service');
 const { writeAuditLog } = require('../common/audit.service');
 const { enforceTransactionPolicy } = require('../compliance/compliance.service');
@@ -11,6 +11,7 @@ const { assertValidAmount, percentage } = require('../utils/money');
 const calculateFee = (amount, asset = 'XLM') => percentage(assertValidAmount(amount, asset), asset, 100);
 
 const buildReceipt = ({ transaction }) => {
+  const meta = transaction.metadata || {};
   return {
     transactionId: transaction.id,
     status: transaction.status,
@@ -18,6 +19,7 @@ const buildReceipt = ({ transaction }) => {
     asset: transaction.asset,
     rail: transaction.rail,
     receiptUrl: transaction.explorerUrl,
+    ...(meta.memo ? { memo: meta.memo, memoType: meta.memoType || 'text' } : {}),
   };
 };
 
@@ -35,12 +37,22 @@ const executePayment = async ({
   sourceCountry = 'NG',
   destinationCountry = 'NG',
   routeType,
+  memo,
+  memoType = 'text',
 }) => {
   const senderUser = sender;
   if (!senderUser) throw new Error('Sender not found.');
 
-  if (destination && !validateAddress(String(destination).trim())) {
+  if (destination && !stellarAdapter.validateAddress(String(destination).trim())) {
     throw new Error('Destination must be a valid Stellar address.');
+  }
+
+  if (destination && stellarAdapter.isMuxedAddress && stellarAdapter.isMuxedAddress(destination) && memo !== undefined && memo !== null && memo !== '') {
+    throw new Error('Muxed account destination already includes an embedded ID; providing a separate memo is conflicting.');
+  }
+
+  if (memo !== undefined && memo !== null && memo !== '') {
+    stellarAdapter.validateMemo({ memo, memoType });
   }
 
   const rail = RAIL;
@@ -50,6 +62,10 @@ const executePayment = async ({
   const effectiveRouteType = routeType
     || (sourceCountry && destinationCountry && sourceCountry !== destinationCountry ? 'cross_border' : 'domestic');
   const normalizedAmount = assertValidAmount(amount, effectiveAsset);
+
+  const memoMetadata = (memo !== undefined && memo !== null && memo !== '')
+    ? { memo: stellarAdapter.redactMemo ? stellarAdapter.redactMemo(memo) : String(memo), memoType: String(memoType || 'text').toLowerCase() }
+    : {};
 
   const { quote, transaction } = await (prisma.$transaction ? prisma.$transaction(async (tx) => {
     const comp = await enforceTransactionPolicy({
@@ -84,6 +100,7 @@ const executePayment = async ({
           fee: calculateFee(normalizedAmount, effectiveAsset),
           userHiddenRail: true,
           riskScore: comp.riskScore,
+          ...memoMetadata,
         },
       },
     });
@@ -121,6 +138,7 @@ const executePayment = async ({
           fee: calculateFee(normalizedAmount, effectiveAsset),
           userHiddenRail: true,
           riskScore: comp.riskScore,
+          ...memoMetadata,
         },
       },
     });
@@ -131,7 +149,14 @@ const executePayment = async ({
 
   try {
     const wallet = await walletService.createOrGetWallet({ user: senderUser });
-    const result = await walletService.submitPayment({ wallet, destination, amount: normalizedAmount, asset: effectiveAsset });
+    const result = await walletService.submitPayment({
+      wallet,
+      destination,
+      amount: normalizedAmount,
+      asset: effectiveAsset,
+      memo,
+      memoType,
+    });
     activeTransaction = await prisma.transaction.update({
       where: { id: activeTransaction.id },
       data: {
@@ -147,7 +172,7 @@ const executePayment = async ({
       action: 'payment.executed',
       entityType: 'Transaction',
       entityId: String(activeTransaction.id),
-      metadata: { rail, status: activeTransaction.status },
+      metadata: { rail, status: activeTransaction.status, ...memoMetadata },
     });
 
     return { transaction: withIdAlias(activeTransaction), quote, receipt: buildReceipt({ transaction: activeTransaction }) };
