@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const axios = require('axios');
 const config = require('../config/env');
+const { ProviderSkippedError } = require('./providerErrors');
 
 const signatureFor = (timestamp) => crypto
   .createHmac('sha256', config.compliance.smileId.apiKey)
@@ -61,4 +62,18 @@ const verifyCallback = ({ signature, timestamp }) => {
   return expected.length === received.length && crypto.timingSafeEqual(expected, received);
 };
 
-module.exports = { submitVerification, verifyCallback, signatureFor };
+// Best-effort subject deletion at the KYC provider. Smile ID has no public
+// "delete" endpoint in the basic API, so this is gated behind an operator-
+// configured deletion URL. When unconfigured it throws ProviderSkippedError
+// so the privacy workflow records a visible "skipped" task instead of failing.
+const deleteSubject = async ({ userId, providerReference }) => {
+  const url = config.compliance.smileId.dataDeletionUrl || process.env.SMILE_ID_DATA_DELETION_URL;
+  if (!url) throw new ProviderSkippedError('Smile ID data deletion not configured');
+  await axios.post(url, { user_id: userId, job_id: providerReference }, {
+    timeout: config.compliance.smileId.timeoutMs,
+    headers: { 'content-type': 'application/json', Authorization: `Bearer ${config.compliance.smileId.apiKey}` },
+  });
+  return { status: 'success' };
+};
+
+module.exports = { submitVerification, verifyCallback, signatureFor, deleteSubject };
