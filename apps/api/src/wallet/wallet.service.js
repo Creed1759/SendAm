@@ -171,9 +171,9 @@ const balancesForUser = async ({ userId, phoneNumber }) => {
   }));
 };
 
-const submitPayment = async ({ wallet, destination, amount, asset }) => {
+const submitPayment = async ({ wallet, destination, amount, asset, memo, memoType }) => {
   const secretKey = decrypt(wallet.encryptedSecretKey);
-  return stellarAdapter.submitPayment({ secretKey, destination, amount, asset });
+  return stellarAdapter.submitPayment({ secretKey, destination, amount, asset, memo, memoType });
 };
 
 const transactionHistory = async ({ userId }) => {

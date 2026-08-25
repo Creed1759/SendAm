@@ -58,7 +58,16 @@ Consequences you'll hit in code:
 - Fees are tiny (100 stroops base = 0.00001 XLM) but nonzero, paid in XLM by
   the source account. *Fee-bump transactions* let a different account pay
   the fee, if that's ever needed.
-- Transactions can carry a **memo** (useful later for payment references).
+- Transactions can carry a **memo** (useful for payment references and exchange deposit routing).
+
+## Memos and Muxed Accounts (SEP-23 & SEP-30)
+
+Stellar payments can specify destination routing via Memos or Muxed Addresses:
+
+- **Supported Memo Types**: `text` (max 28 bytes UTF-8), `id` (unsigned 64-bit integer string), `hash` (32-byte hex/buffer), `return` (32-byte hex/buffer).
+- **Muxed Accounts (`M...`)**: SEP-23 Muxed addresses embed a 64-bit subaccount ID into a 69-character address (`M...`). SendAm resolves the underlying classic `G...` key for Horizon account verification while keeping the `M...` address for payment operation destination.
+- **Conflicting Combination Rule**: Providing both a Muxed destination (`M...`) AND an explicit separate memo is **conflicting** and will be rejected prior to transaction construction.
+- **Redaction**: Memos containing sensitive identifiers are masked (`ab***ef`) in user-facing receipts, logs, and audit records.
 
 ## Horizon (the API you actually call)
 

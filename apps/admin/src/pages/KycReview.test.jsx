@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import KycReview from './KycReview';
 import { describe, it, expect } from 'vitest';
 import { server } from '../mocks/server';
@@ -7,7 +8,11 @@ import { http, HttpResponse } from 'msw';
 
 describe('KycReview Component', () => {
   it('renders KYC profiles and handles approval mutation', async () => {
-    render(<KycReview />);
+    render(
+      <MemoryRouter>
+        <KycReview />
+      </MemoryRouter>
+    );
     
     await waitFor(() => {
       expect(screen.getByRole('table')).toBeInTheDocument();
@@ -26,7 +31,11 @@ describe('KycReview Component', () => {
   });
 
   it('renders KYC profiles and handles rejection mutation', async () => {
-    render(<KycReview />);
+    render(
+      <MemoryRouter>
+        <KycReview />
+      </MemoryRouter>
+    );
     
     await waitFor(() => {
       expect(screen.getByRole('table')).toBeInTheDocument();
@@ -47,7 +56,11 @@ describe('KycReview Component', () => {
       })
     );
 
-    render(<KycReview />);
+    render(
+      <MemoryRouter>
+        <KycReview />
+      </MemoryRouter>
+    );
     
     await waitFor(() => {
       expect(screen.getByRole('table')).toBeInTheDocument();

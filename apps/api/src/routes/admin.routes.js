@@ -22,6 +22,7 @@ router.get('/users', requireAdmin('admin.read'), adminController.getUsers);
 router.get('/wallets', requireAdmin('admin.read'), adminController.getWallets);
 router.get('/transactions', requireAdmin('admin.read'), adminController.getTransactions);
 router.get('/kyc', requireAdmin('compliance.read'), adminController.getKycProfiles);
+router.get('/kyc/export', requireAdmin('compliance.read'), adminController.exportKyc);
 router.get('/audit-logs', requireAdmin('admin.read'), adminController.getAuditLogs);
 
 // Customer privacy lifecycle (admin): review/approve erasure, retry provider
@@ -33,6 +34,7 @@ router.post('/privacy-requests/:id/retry', requireAdmin('compliance.write'), pri
 router.get('/legal-holds', requireAdmin('compliance.read'), privacyController.listLegalHolds);
 router.post('/legal-holds', requireAdmin('compliance.write'), privacyController.setLegalHold);
 router.delete('/legal-holds/:userId', requireAdmin('compliance.write'), privacyController.releaseLegalHold);
+router.get('/audit-logs/export', requireAdmin('admin.read'), adminController.exportAuditLogs);
 router.get('/system-health', requireAdmin('operations.write'), adminController.getSystemHealth);
 router.get('/administrators', requireAdmin('*'), adminController.listAdministrators);
 router.post('/administrators/invite', requireAdmin('*'), adminController.inviteAdministrator);
