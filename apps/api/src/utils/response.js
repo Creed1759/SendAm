@@ -29,8 +29,23 @@ const sendPaginated = (res, items, { page, limit, total }, message = 'Success') 
   });
 };
 
+// Cursor (keyset) paginated list response. `nextCursor`/`prevCursor` are opaque
+// tokens; `hasMore` reflects whether another forward page exists. `total` is
+// optional (a filtered count) and omitted when not computed.
+const sendCursorPaginated = (
+  res,
+  items,
+  { limit, nextCursor = null, prevCursor = null, total = null, hasMore = Boolean(nextCursor) },
+  message = 'Success'
+) => {
+  const pagination = { limit, nextCursor, prevCursor, hasMore };
+  if (total !== null && total !== undefined) pagination.total = total;
+  res.status(200).json({ success: true, message, data: items, pagination });
+};
+
 module.exports = {
   sendSuccess,
   sendError,
   sendPaginated,
+  sendCursorPaginated,
 };

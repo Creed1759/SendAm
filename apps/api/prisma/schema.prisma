@@ -29,6 +29,8 @@ model User {
   notifications Notification[]
   quotes        Quote[]
   restSessions  RestSession[]
+
+  @@index([createdAt, id])
 }
 
 model Sep10Challenge {
@@ -92,6 +94,8 @@ model Wallet {
 
   @@unique([userId, chain])
   @@index([phoneNumber])
+  @@index([chain, createdAt])
+  @@index([createdAt, id])
   @@index([fundingState, fundingUpdatedAt])
   @@index([trustlineState, trustlineUpdatedAt])
 }
@@ -125,6 +129,11 @@ model Transaction {
   @@index([userId, createdAt])
   @@index([status])
   @@index([rail])
+  @@index([asset, createdAt])
+  @@index([status, createdAt])
+  @@index([createdAt, id])
+  @@index([txHash])
+  @@index([providerTransactionId])
 }
 
 model Contact {
@@ -181,6 +190,8 @@ model KycProfile {
   @@index([status])
   @@index([sanctionsStatus])
   @@index([custodyStatus])
+  @@index([status, updatedAt])
+  @@index([updatedAt, id])
 }
 
 // Durable inbox for idempotent KYC callback processing. The unique provider
@@ -234,6 +245,11 @@ model AuditLog {
   @@index([actorType])
   @@index([action])
   @@index([createdAt])
+  @@index([createdAt, id])
+  @@index([action, createdAt])
+  @@index([actorType, createdAt])
+  @@index([entityType, createdAt])
+  @@index([entityId, createdAt])
 }
 
 model AdminUser {
