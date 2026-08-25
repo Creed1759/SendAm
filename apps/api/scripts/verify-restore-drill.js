@@ -22,6 +22,8 @@ const parsePositiveInteger = (value, fallback, name) => {
   return parsed;
 };
 
+const fs = require('fs');
+
 const readBackupMetadata = (env) => {
   if (env.BACKUP_METADATA_JSON) {
     const metadata = JSON.parse(env.BACKUP_METADATA_JSON);
@@ -29,6 +31,19 @@ const readBackupMetadata = (env) => {
       completedAt: metadata.completedAt || metadata.completed_at,
       backupId: metadata.backupId || metadata.backup_id || 'metadata-json',
     };
+  }
+  const filePath = env.BACKUP_METADATA_FILE || '/var/backups/latest-backup.json';
+  if (fs.existsSync(filePath)) {
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      const metadata = JSON.parse(content);
+      return {
+        completedAt: metadata.completedAt || metadata.completed_at,
+        backupId: metadata.backupId || metadata.backup_id || filePath,
+      };
+    } catch (_err) {
+      // Ignore file parse error and fall back to env vars
+    }
   }
   return {
     completedAt: env.LATEST_BACKUP_COMPLETED_AT,
@@ -90,11 +105,14 @@ const verifyWalletDecryptability = async (client, decrypt) => {
 const runRestoreDrill = async ({
   env = process.env,
   now,
+  drillStartTime,
   clientFactory = (config) => new Client(config),
   redisFactory,
   decrypt,
 } = {}) => {
-  const startedAt = now || new Date();
+  const startedAt = now
+    || (drillStartTime ? new Date(drillStartTime) : null)
+    || (env.RESTORE_DRILL_START_TIME || env.DRILL_START_TIME ? new Date(env.RESTORE_DRILL_START_TIME || env.DRILL_START_TIME) : new Date());
   const connectionString = env.DATABASE_URL || env.DRILL_DATABASE_URL;
   if (!connectionString) throw new Error('DRILL_DATABASE_URL or DATABASE_URL is required');
 

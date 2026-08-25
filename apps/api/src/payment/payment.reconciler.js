@@ -115,4 +115,127 @@ const reconcileStaleTransactions = async ({
   return { processedCount: staleTransactions.length, updatedCount };
 };
 
-module.exports = { reconcileStaleTransactions };
+const { decimalToRatio, getAssetRule } = require('../utils/money');
+
+const canonicalizeMonetaryAmount = (amountStr, assetCode) => {
+  if (amountStr == null || String(amountStr).trim() === '') return null;
+  const rule = getAssetRule(assetCode);
+  const ratio = decimalToRatio(amountStr);
+  const factor = 10n ** BigInt(rule.precision);
+  const rounded = (ratio.numerator * factor + ratio.denominator / 2n) / ratio.denominator;
+  const whole = rounded / factor;
+  const frac = (rounded % factor).toString().padStart(rule.precision, '0');
+  return rule.precision > 0 ? `${whole}.${frac}` : `${whole}`;
+};
+
+const reconcileMonetaryValues = async ({
+  prisma,
+  apply = false,
+  maxRecords = 1000,
+  loggerInstance = logger,
+} = {}) => {
+  let checkedCount = 0;
+  let invalidCount = 0;
+  let fixedCount = 0;
+  const errors = [];
+
+  try {
+    const quotes = await prisma.quote.findMany({
+      take: maxRecords,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    for (const q of quotes) {
+      checkedCount += 1;
+      let needsFix = false;
+      const updates = {};
+
+      try {
+        if (q.sourceAmount && q.sourceCurrency) {
+          const canonical = canonicalizeMonetaryAmount(q.sourceAmount, q.sourceCurrency);
+          if (canonical !== String(q.sourceAmount)) {
+            needsFix = true;
+            updates.sourceAmount = canonical;
+          }
+        }
+        if (q.targetAmount && q.targetCurrency) {
+          const canonical = canonicalizeMonetaryAmount(q.targetAmount, q.targetCurrency);
+          if (canonical !== String(q.targetAmount)) {
+            needsFix = true;
+            updates.targetAmount = canonical;
+          }
+        }
+        if (q.fee && q.sourceCurrency) {
+          const canonical = canonicalizeMonetaryAmount(q.fee, q.sourceCurrency);
+          if (canonical !== String(q.fee)) {
+            needsFix = true;
+            updates.fee = canonical;
+          }
+        }
+        if (q.rate != null) {
+          const canonicalRate = decimalToRatio(q.rate).decimal;
+          if (canonicalRate !== String(q.rate)) {
+            needsFix = true;
+            updates.rate = canonicalRate;
+          }
+        }
+
+        if (needsFix) {
+          invalidCount += 1;
+          if (apply) {
+            await prisma.quote.update({
+              where: { id: q.id },
+              data: updates,
+            });
+            fixedCount += 1;
+            loggerInstance.info(`Reconciled Quote ${q.id} monetary fields: ${JSON.stringify(updates)}`);
+          }
+        }
+      } catch (err) {
+        errors.push({ id: q.id, type: 'Quote', error: err.message });
+      }
+    }
+
+    const transactions = await prisma.transaction.findMany({
+      take: maxRecords,
+      orderBy: { createdAt: 'desc' },
+    });
+
+    for (const tx of transactions) {
+      checkedCount += 1;
+      let needsFix = false;
+      const updates = {};
+
+      try {
+        if (tx.amount && tx.asset) {
+          const canonical = canonicalizeMonetaryAmount(tx.amount, tx.asset);
+          if (canonical !== String(tx.amount)) {
+            needsFix = true;
+            updates.amount = canonical;
+          }
+        }
+
+        if (needsFix) {
+          invalidCount += 1;
+          if (apply) {
+            await prisma.transaction.update({
+              where: { id: tx.id },
+              data: updates,
+            });
+            fixedCount += 1;
+            loggerInstance.info(`Reconciled Transaction ${tx.id} monetary fields: ${JSON.stringify(updates)}`);
+          }
+        }
+      } catch (err) {
+        errors.push({ id: tx.id, type: 'Transaction', error: err.message });
+      }
+    }
+  } catch (err) {
+    loggerInstance.error('Error during monetary reconciliation', err.message);
+    errors.push({ error: err.message });
+  }
+
+  return { checkedCount, invalidCount, fixedCount, errors };
+};
+
+module.exports = { reconcileStaleTransactions, reconcileMonetaryValues };
