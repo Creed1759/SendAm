@@ -95,6 +95,7 @@ const baseInput = {
 const txRow   = { id: 'tx_1', userId: 1, type: 'send', amount: '100.0000000', asset: 'USDC', rail: 'stellar', status: 'processing', metadata: { fee: '1.00', riskScore: 10 } };
 const wallet  = { id: 'wallet_1', publicKey: dest, encryptedSecretKey: 'encrypted' };
 const submitOk = { txHash: 'abc123', explorerUrl: 'https://stellar.expert/abc123' };
+const pendingTx = { ...txRow, status: 'pending', txHash: 'abc123', explorerUrl: 'https://stellar.expert/abc123' };
 const successTx = { ...txRow, status: 'success', txHash: 'abc123', explorerUrl: 'https://stellar.expert/abc123' };
 const quote   = { id: 'quote_1', status: 'active' };
 
@@ -105,7 +106,7 @@ const setUpHappyPath = () => {
   mocks.prismaTxCreate.mock.mockImplementation(() => txRow);
   mocks.createOrGetWallet.mock.mockImplementation(() => wallet);
   mocks.submitPayment.mock.mockImplementation(() => submitOk);
-  mocks.prismaTxUpdate.mock.mockImplementation(() => successTx);
+  mocks.prismaTxUpdate.mock.mockImplementation(() => pendingTx);
   mocks.writeAuditLog.mock.mockImplementation(() => {});
   mocks.validateQuoteForExecution.mock.mockImplementation(() => quote);
 };
@@ -144,20 +145,45 @@ test('buildReceipt: shapes a receipt from a successful transaction', () => {
 });
 
 // ---------------------------------------------------------------------------
-// executePayment – happy path
+// executePayment – happy path (finality-aware)
 // ---------------------------------------------------------------------------
-test('executePayment: happy path returns transaction, quote, and receipt', async () => {
+test('executePayment: happy path returns transaction in pending state with receipt: null', async () => {
   resetMockCalls();
   setUpHappyPath();
 
   const result = await executePayment(baseInput);
 
   assert.ok(result.transaction);
-  assert.equal(result.transaction.status, 'success');
+  // Must NOT be 'success' — finality is deferred to the reconciler.
+  assert.equal(result.transaction.status, 'pending');
   assert.equal(result.quote.id, 'quote_1');
-  assert.ok(result.receipt);
-  assert.equal(result.receipt.transactionId, 'tx_1');
-  assert.equal(result.receipt.status, 'success');
+  // No receipt until ledger-backed finality is confirmed.
+  assert.equal(result.receipt, null);
+});
+
+test('executePayment: transaction is written as pending (not success) after submitPayment returns', async () => {
+  resetMockCalls();
+  setUpHappyPath();
+
+  await executePayment(baseInput);
+
+  assert.equal(mocks.prismaTxUpdate.mock.callCount(), 1);
+  const updateData = mocks.prismaTxUpdate.mock.calls[0].arguments[0].data;
+  assert.equal(updateData.status, 'pending',
+    'status must be pending after submission — success requires ledger confirmation');
+  assert.equal(updateData.txHash, 'abc123');
+});
+
+test('executePayment: audit log records payment.submitted (not payment.executed) on the pending path', async () => {
+  resetMockCalls();
+  setUpHappyPath();
+
+  await executePayment(baseInput);
+
+  assert.equal(mocks.writeAuditLog.mock.callCount(), 1);
+  const logCall = mocks.writeAuditLog.mock.calls[0].arguments[0];
+  assert.equal(logCall.action, 'payment.submitted');
+  assert.equal(logCall.metadata.status, 'pending');
 });
 
 test('executePayment: quote is persisted through the active transaction client (no orphan on rollback)', async () => {
@@ -282,7 +308,7 @@ test('executePayment: a valid quote is consumed atomically with the transaction'
 // ---------------------------------------------------------------------------
 // Idempotency: retrying a request must not create duplicate quotes/transactions
 // ---------------------------------------------------------------------------
-test('executePayment: same idempotencyKey returns the existing successful transaction without re-submitting', async () => {
+test('executePayment: same idempotencyKey returns the existing successful transaction with receipt, without re-submitting', async () => {
   resetMockCalls();
   setUpHappyPath();
   const prior = { ...successTx, idempotencyKey: 'req_42' };
@@ -295,4 +321,21 @@ test('executePayment: same idempotencyKey returns the existing successful transa
   assert.equal(mocks.createQuote.mock.callCount(), 0, 'no duplicate quote created');
   assert.equal(mocks.submitPayment.mock.callCount(), 0, 'must not re-submit a settled payment');
   assert.equal(result.transaction.id, 'tx_1');
+  // A previously confirmed success should return a receipt (idempotent re-delivery).
+  assert.ok(result.receipt, 'receipt must be present for an already-settled transaction');
+  assert.equal(result.receipt.status, 'success');
+});
+
+test('executePayment: same idempotencyKey for a pending transaction returns receipt: null without re-submitting', async () => {
+  resetMockCalls();
+  setUpHappyPath();
+  const prior = { ...pendingTx, idempotencyKey: 'req_43' };
+  mocks.prismaTxFindUnique.mock.mockImplementation(() => prior);
+  mocks.prismaQuoteFindUnique.mock.mockImplementation(() => withQuote());
+
+  const result = await executePayment({ ...baseInput, idempotencyKey: 'req_43' });
+
+  assert.equal(mocks.submitPayment.mock.callCount(), 0, 'must not re-submit a pending payment');
+  assert.equal(result.transaction.status, 'pending');
+  assert.equal(result.receipt, null, 'no receipt until ledger-backed finality');
 });

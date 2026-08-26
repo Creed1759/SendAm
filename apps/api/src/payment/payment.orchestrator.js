@@ -1,8 +1,6 @@
 const walletService = require('../wallet/wallet.service');
-const { validateAddress } = require('../wallet/stellar.adapter');
-const { createQuote, validateQuoteForExecution, QUOTE_STATUS } = require('../pricing/pricing.service');
 const stellarAdapter = require('../wallet/stellar.adapter');
-const { createQuote } = require('../pricing/pricing.service');
+const { createQuote, validateQuoteForExecution, QUOTE_STATUS } = require('../pricing/pricing.service');
 const { writeAuditLog } = require('../common/audit.service');
 const { enforceTransactionPolicy } = require('../compliance/compliance.service');
 const { markTransactionFailed } = require('./markFailed');
@@ -67,12 +65,14 @@ const executePayment = async ({
   }
 
   const rail = RAIL;
-  // Direct custody only supports the native asset for now (see
-  // wallet/stellar.adapter.js resolveAsset) — no anchor-asset support yet.
   const effectiveAsset = asset || NATIVE_ASSET;
   const effectiveRouteType = routeType
     || (sourceCountry && destinationCountry && sourceCountry !== destinationCountry ? 'cross_border' : 'domestic');
   const normalizedAmount = assertValidAmount(amount, effectiveAsset);
+
+  const memoMetadata = (memo !== undefined && memo !== null && memo !== '')
+    ? { memo: stellarAdapter.redactMemo ? stellarAdapter.redactMemo(memo) : String(memo), memoType: String(memoType || 'text').toLowerCase() }
+    : {};
 
   // Core runs inside a single Prisma transaction so the quote and the payment
   // reservation commit together (or not at all). `tx` is the active transaction
@@ -80,12 +80,6 @@ const executePayment = async ({
   // rollback cannot strand an orphan quote.
   const runCore = async (tx) => {
     const compliance = await enforceTransactionPolicy({
-  const memoMetadata = (memo !== undefined && memo !== null && memo !== '')
-    ? { memo: stellarAdapter.redactMemo ? stellarAdapter.redactMemo(memo) : String(memo), memoType: String(memoType || 'text').toLowerCase() }
-    : {};
-
-  const { quote, transaction } = await (prisma.$transaction ? prisma.$transaction(async (tx) => {
-    const comp = await enforceTransactionPolicy({
       user: senderUser,
       amount: normalizedAmount,
       asset: effectiveAsset,
@@ -100,8 +94,8 @@ const executePayment = async ({
     if (idempotencyKey) {
       const prior = await tx.transaction.findUnique({ where: { idempotencyKey } });
       if (prior) {
-        const quote = prior.quoteId ? await tx.quote.findUnique({ where: { id: prior.quoteId } }) : null;
-        return { compliance, quote, transaction: prior };
+        const priorQuote = prior.quoteId ? await tx.quote.findUnique({ where: { id: prior.quoteId } }) : null;
+        return { compliance, quote: priorQuote, transaction: prior };
       }
     }
 
@@ -151,56 +145,8 @@ const executePayment = async ({
             fee: calculateFee(normalizedAmount, effectiveAsset),
             userHiddenRail: true,
             riskScore: compliance.riskScore,
+            ...memoMetadata,
           },
-        recipientPhoneNumber,
-        destination,
-        rail,
-        routeType: effectiveRouteType,
-        quoteId: q.id,
-        status: 'processing',
-        metadata: {
-          fee: calculateFee(normalizedAmount, effectiveAsset),
-          userHiddenRail: true,
-          riskScore: comp.riskScore,
-          ...memoMetadata,
-        },
-      },
-    });
-    return { compliance: comp, quote: q, transaction: t };
-  }) : (async () => {
-    const comp = await enforceTransactionPolicy({
-      user: senderUser,
-      amount: normalizedAmount,
-      asset: effectiveAsset,
-      routeType: effectiveRouteType,
-      destinationCountry,
-      tx: prisma,
-    });
-    const q = await createQuote({
-      userId: senderUser.id,
-      sourceCurrency: effectiveAsset,
-      targetCurrency: effectiveAsset,
-      sourceAmount: normalizedAmount,
-      route: rail,
-      provider: rail,
-    });
-    const t = await prisma.transaction.create({
-      data: {
-        userId: senderUser.id,
-        type: 'send',
-        amount: normalizedAmount,
-        asset: effectiveAsset,
-        recipientPhoneNumber,
-        destination,
-        rail,
-        routeType: effectiveRouteType,
-        quoteId: q.id,
-        status: 'processing',
-        metadata: {
-          fee: calculateFee(normalizedAmount, effectiveAsset),
-          userHiddenRail: true,
-          riskScore: comp.riskScore,
-          ...memoMetadata,
         },
       });
     } catch (error) {
@@ -216,18 +162,21 @@ const executePayment = async ({
       }
       throw error;
     }
+
     return { compliance, quote, transaction };
   };
 
   const { quote, transaction } = await (prisma.$transaction ? prisma.$transaction(runCore) : runCore(prisma));
 
-  // A previously reserved transaction that already settled: return it as-is
-  // rather than re-submitting (prevents double-spend on client retries).
-  if (transaction.status === 'success') {
+  // A previously reserved transaction that already settled or is in-flight:
+  // return it as-is without re-submitting (prevents double-spend on retries).
+  // Receipt is only attached when the transaction has reached ledger-backed
+  // finality ('success'); pending/processing states get receipt: null.
+  if (transaction.status !== 'processing') {
     return {
       transaction: withIdAlias(transaction),
       quote,
-      receipt: buildReceipt({ transaction }),
+      receipt: transaction.status === 'success' ? buildReceipt({ transaction }) : null,
     };
   }
 
@@ -243,10 +192,14 @@ const executePayment = async ({
       memo,
       memoType,
     });
+
+    // Record txHash and move to 'pending' — NOT 'success'. Finality is
+    // confirmed by the reconciler once Horizon reports the hash in a closed
+    // ledger (successful=true). Issuing a receipt here would be premature.
     activeTransaction = await prisma.transaction.update({
       where: { id: activeTransaction.id },
       data: {
-        status: 'success',
+        status: 'pending',
         txHash: result.txHash,
         explorerUrl: result.explorerUrl,
       },
@@ -255,13 +208,15 @@ const executePayment = async ({
     await writeAuditLog({
       actorType: 'user',
       actorId: String(senderUser.id),
-      action: 'payment.executed',
+      action: 'payment.submitted',
       entityType: 'Transaction',
       entityId: String(activeTransaction.id),
       metadata: { rail, status: activeTransaction.status, ...memoMetadata },
     });
 
-    return { transaction: withIdAlias(activeTransaction), quote, receipt: buildReceipt({ transaction: activeTransaction }) };
+    // Return the pending transaction. Receipt is withheld until the
+    // reconciler confirms ledger-backed finality.
+    return { transaction: withIdAlias(activeTransaction), quote, receipt: null };
   } catch (error) {
     // Guarded: if this bookkeeping update itself rejects, the original
     // payment error is still the one thrown to the caller.
@@ -284,7 +239,6 @@ const executeRefund = async ({ transactionId, reason, amount, adminId }) => {
     throw new Error(`Invalid refund reason. Must be one of: ${ELIGIBLE_REASONS.join(', ')}`);
   }
 
-  // Find the original transaction
   const originalTx = await prisma.transaction.findUnique({
     where: { id: transactionId },
     include: { user: true },
@@ -304,13 +258,8 @@ const executeRefund = async ({ transactionId, reason, amount, adminId }) => {
 
   const refundAmount = amount ? assertValidAmount(amount, originalTx.asset) : originalTx.amount;
 
-  // Prevent refunds above settled amount or duplicate refunds
-  // Find all existing successful refunds for this transaction
   const allRefunds = await prisma.transaction.findMany({
-    where: {
-      type: 'refund',
-      status: 'success',
-    },
+    where: { type: 'refund', status: 'success' },
   });
 
   const alreadyRefunded = allRefunds
@@ -322,7 +271,6 @@ const executeRefund = async ({ transactionId, reason, amount, adminId }) => {
     throw new Error(`Refund amount exceeds the maximum refundable amount of ${maxRefundable} ${originalTx.asset}. Already refunded: ${alreadyRefunded}`);
   }
 
-  // Find the sender's wallet to receive the refund
   const senderWallet = await prisma.wallet.findUnique({
     where: { userId_chain: { userId: originalTx.userId, chain: RAIL } },
   });
@@ -330,7 +278,6 @@ const executeRefund = async ({ transactionId, reason, amount, adminId }) => {
     throw new Error('Sender wallet not found. Cannot return funds.');
   }
 
-  // Find the recipient's wallet to debit the funds from
   let recipientWallet;
   if (originalTx.recipientPhoneNumber) {
     const recipientUser = await prisma.user.findFirst({
@@ -351,12 +298,11 @@ const executeRefund = async ({ transactionId, reason, amount, adminId }) => {
     throw new Error('Recipient wallet is not managed on this platform. Reversals from external addresses are impossible.');
   }
 
-  // Execute the compensating Stellar payment
   const secretKey = decrypt(recipientWallet.encryptedSecretKey);
 
   const refundTx = await prisma.transaction.create({
     data: {
-      userId: originalTx.userId, // Credit goes back to the sender user
+      userId: originalTx.userId,
       type: 'refund',
       amount: String(refundAmount),
       asset: originalTx.asset,
@@ -378,7 +324,7 @@ const executeRefund = async ({ transactionId, reason, amount, adminId }) => {
       destination: senderWallet.publicKey,
       amount: String(refundAmount),
       asset: originalTx.asset,
-      memo: originalTx.id.slice(0, 20), // custom memo referencing original tx id
+      memo: originalTx.id.slice(0, 20),
       memoType: 'text',
     });
 
@@ -395,7 +341,6 @@ const executeRefund = async ({ transactionId, reason, amount, adminId }) => {
       },
     });
 
-    // Update original transaction metadata to link the refund
     const originalMeta = typeof originalTx.metadata === 'object' && originalTx.metadata !== null ? originalTx.metadata : {};
     const currentRefunds = originalMeta.refunds || [];
     await prisma.transaction.update({
