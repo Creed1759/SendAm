@@ -21,6 +21,7 @@ router.get('/stats', requireAdmin('admin.read'), adminController.getStats);
 router.get('/users', requireAdmin('admin.read'), adminController.getUsers);
 router.get('/wallets', requireAdmin('admin.read'), adminController.getWallets);
 router.get('/transactions', requireAdmin('admin.read'), adminController.getTransactions);
+router.post('/transactions/:id/refund', requireAdmin('operations.write'), adminController.refundTransaction);
 router.get('/kyc', requireAdmin('compliance.read'), adminController.getKycProfiles);
 router.get('/kyc/export', requireAdmin('compliance.read'), adminController.exportKyc);
 router.get('/audit-logs', requireAdmin('admin.read'), adminController.getAuditLogs);

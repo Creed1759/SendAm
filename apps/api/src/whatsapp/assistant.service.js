@@ -1,4 +1,5 @@
 const { Prisma } = require('@prisma/client');
+const crypto = require('crypto');
 const walletService = require('../wallet/wallet.service');
 const { validateAddress } = require('../wallet/stellar.adapter');
 const { executePayment } = require('../payment/payment.orchestrator');
@@ -66,6 +67,28 @@ const requestConfirmation = async ({ phoneNumber, user, intent, notify }) => {
     return;
   }
 
+  // Detect first-time, changed, or high-risk destination
+  const previousTx = await prisma.transaction.findFirst({
+    where: {
+      userId: user.id,
+      destination: recipient.destination,
+      status: 'success',
+    },
+  });
+
+  const isSavedContact = await prisma.alias.findFirst({
+    where: {
+      userId: user.id,
+      target: recipient.destination,
+    },
+  });
+
+  const isFirstTime = !previousTx;
+  const isHighRisk = isFirstTime && !isSavedContact;
+
+  const addressStr = String(recipient.destination).trim();
+  const fingerprint = `SDA-FP-${crypto.createHash('sha256').update(addressStr).digest('hex').slice(0, 8).toUpperCase()}`;
+
   const pendingSend = {
     amount: intent.amount,
     asset: intent.asset,
@@ -75,19 +98,26 @@ const requestConfirmation = async ({ phoneNumber, user, intent, notify }) => {
     memoType: intent.memoType,
     routeType: 'domestic',
     requestedAt: new Date(),
+    isHighRisk,
+    highRiskConfirmed: false,
+    fingerprint,
   };
   await prisma.user.update({
     where: { id: user.id },
     data: { pendingSend },
   });
 
-  let confirmMsg = `Please confirm this payment:\nAmount: ${intent.amount} ${intent.asset}\nTo: ${recipient.label}`;
-  if (intent.memo) {
-    confirmMsg += `\nMemo (${intent.memoType || 'text'}): ${intent.memo}`;
+  if (isHighRisk) {
+    const warnMsg = `⚠️ HIGH-RISK RECIPIENT DETECTED\nYou have never sent money to this address before:\nFingerprint: ${fingerprint}\n\nDo you trust this recipient? Reply "YES" to confirm, or "NO" to cancel.`;
+    await notify(phoneNumber, warnMsg);
+  } else {
+    let confirmMsg = `Please confirm this payment:\nAmount: ${intent.amount} ${intent.asset}\nTo: ${recipient.label}`;
+    if (intent.memo) {
+      confirmMsg += `\nMemo (${intent.memoType || 'text'}): ${intent.memo}`;
+    }
+    confirmMsg += `\nReply with your PIN to send, or "no" to cancel.`;
+    await notify(phoneNumber, confirmMsg);
   }
-  confirmMsg += `\nReply with your PIN to send, or "no" to cancel.`;
-
-  await notify(phoneNumber, confirmMsg);
 };
 
 const handlePendingPin = async ({ phoneNumber, user, text, notify }) => {
@@ -105,6 +135,32 @@ const handlePendingPin = async ({ phoneNumber, user, text, notify }) => {
     await prisma.user.update({ where: { id: user.id }, data: { pendingSend: Prisma.DbNull } });
     await notify(phoneNumber, 'That payment request expired. Please start again.');
     return true;
+  }
+
+  // Intermediate confirmation step for high risk
+  if (user.pendingSend.isHighRisk && !user.pendingSend.highRiskConfirmed) {
+    if (lowered === 'yes') {
+      const updatedPending = {
+        ...user.pendingSend,
+        highRiskConfirmed: true,
+        requestedAt: new Date(), // reset timestamp for PIN entry TTL
+      };
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { pendingSend: updatedPending },
+      });
+
+      let confirmMsg = `Recipient confirmed.\nPlease confirm this payment:\nAmount: ${updatedPending.amount} ${updatedPending.asset}\nTo: [Recipient ${updatedPending.fingerprint}]\n`;
+      if (updatedPending.memo) {
+        confirmMsg += `Memo (${updatedPending.memoType || 'text'}): ${updatedPending.memo}\n`;
+      }
+      confirmMsg += `Reply with your PIN to send, or "no" to cancel.`;
+      await notify(phoneNumber, confirmMsg);
+      return true;
+    } else {
+      await notify(phoneNumber, 'Invalid reply. Please reply "YES" to confirm the high-risk recipient, or "NO" to cancel.');
+      return true;
+    }
   }
 
   const userWithPin = await prisma.user.findUnique({ where: { id: user.id } });

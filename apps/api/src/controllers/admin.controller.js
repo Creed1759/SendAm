@@ -419,6 +419,27 @@ const getSystemHealth = async (_req, res, next) => {
   }
 };
 
+const refundTransaction = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { reason, amount } = req.body;
+    const adminId = req.admin ? req.admin.id : 'system';
+
+    const { executeRefund } = require('../payment/payment.orchestrator');
+
+    const refund = await executeRefund({
+      transactionId: id,
+      reason,
+      amount,
+      adminId,
+    });
+
+    return sendSuccess(res, { refund }, 'Refund executed successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   login,
   acceptInvite,
@@ -438,4 +459,5 @@ module.exports = {
   exportKyc,
   exportAuditLogs,
   getSystemHealth,
+  refundTransaction,
 };

@@ -10,7 +10,7 @@ const injectMock = (relativeFromSrc, exports) => {
 
 const config = {
   isProduction: true,
-  whatsapp: { verifyToken: 'production-verify-token', appSecret: 'production-app-secret' },
+  whatsapp: { verifyToken: 'production-verify-token', appSecret: 'production-app-secret', appSecrets: ['production-app-secret'] },
 };
 const events = [];
 injectMock('config/env', config);
@@ -35,6 +35,7 @@ beforeEach(() => {
   config.isProduction = true;
   config.whatsapp.verifyToken = 'production-verify-token';
   config.whatsapp.appSecret = 'production-app-secret';
+  config.whatsapp.appSecrets = ['production-app-secret'];
 });
 
 test('production verification handshake accepts the configured token', () => {
@@ -93,7 +94,7 @@ test('POST signature check rejects missing, malformed, and mismatched signatures
 });
 
 test('production POST fails closed when the app secret is absent', () => {
-  config.whatsapp.appSecret = undefined;
+  config.whatsapp.appSecrets = [];
   const res = response();
   verifyWhatsappSignature(
     { rawBody: Buffer.from('{}'), get: () => '' },
@@ -101,4 +102,36 @@ test('production POST fails closed when the app secret is absent', () => {
     () => assert.fail('must not call next'),
   );
   assert.equal(res.statusCode, 403);
+});
+
+test('signature check supports multiple app secrets during rotation', () => {
+  config.whatsapp.appSecrets = ['new-secret', 'old-secret'];
+  
+  const rawBody = Buffer.from('{"object":"whatsapp_business_account","entry":[]}');
+  
+  // Test with new/active secret
+  const sigNew = 'sha256=' + crypto
+    .createHmac('sha256', 'new-secret')
+    .update(rawBody)
+    .digest('hex');
+  const reqNew = { rawBody, get: () => sigNew };
+  const resNew = response();
+  let calledNew = false;
+  verifyWhatsappSignature(reqNew, resNew, () => { calledNew = true; });
+  assert.equal(calledNew, true);
+  assert.equal(events[events.length - 1][1], 'whatsapp_webhook_signature_verified');
+  assert.deepEqual(events[events.length - 1][2], { verifiedBy: 'active' });
+
+  // Test with old/previous secret
+  const sigOld = 'sha256=' + crypto
+    .createHmac('sha256', 'old-secret')
+    .update(rawBody)
+    .digest('hex');
+  const reqOld = { rawBody, get: () => sigOld };
+  const resOld = response();
+  let calledOld = false;
+  verifyWhatsappSignature(reqOld, resOld, () => { calledOld = true; });
+  assert.equal(calledOld, true);
+  assert.equal(events[events.length - 1][1], 'whatsapp_webhook_signature_verified');
+  assert.deepEqual(events[events.length - 1][2], { verifiedBy: 'previous_index_1' });
 });

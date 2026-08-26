@@ -16,11 +16,13 @@ const buildReceipt = ({ transaction }) => {
   const meta = transaction.metadata || {};
   return {
     transactionId: transaction.id,
+    receiptId: `SDA-${transaction.id}`,
     status: transaction.status,
     amount: transaction.amount,
     asset: transaction.asset,
     rail: transaction.rail,
     receiptUrl: transaction.explorerUrl,
+    ...(meta.fee ? { fee: meta.fee } : {}),
     ...(meta.memo ? { memo: meta.memo, memoType: meta.memoType || 'text' } : {}),
   };
 };
@@ -273,8 +275,178 @@ const executePayment = async ({
   }
 };
 
+const ELIGIBLE_REASONS = ['failed_fulfillment', 'operator_mistake', 'customer_request', 'duplicate_payment'];
+
+const executeRefund = async ({ transactionId, reason, amount, adminId }) => {
+  const { decrypt } = require('../services/crypto.service');
+
+  if (!ELIGIBLE_REASONS.includes(reason)) {
+    throw new Error(`Invalid refund reason. Must be one of: ${ELIGIBLE_REASONS.join(', ')}`);
+  }
+
+  // Find the original transaction
+  const originalTx = await prisma.transaction.findUnique({
+    where: { id: transactionId },
+    include: { user: true },
+  });
+
+  if (!originalTx) {
+    throw new Error('Original transaction not found.');
+  }
+
+  if (originalTx.status !== 'success') {
+    throw new Error('Only successful transactions can be refunded.');
+  }
+
+  if (originalTx.type !== 'send') {
+    throw new Error('Only payments of type "send" can be refunded.');
+  }
+
+  const refundAmount = amount ? assertValidAmount(amount, originalTx.asset) : originalTx.amount;
+
+  // Prevent refunds above settled amount or duplicate refunds
+  // Find all existing successful refunds for this transaction
+  const allRefunds = await prisma.transaction.findMany({
+    where: {
+      type: 'refund',
+      status: 'success',
+    },
+  });
+
+  const alreadyRefunded = allRefunds
+    .filter((tx) => tx.metadata && tx.metadata.originalTransactionId === originalTx.id)
+    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+  const maxRefundable = Number(originalTx.amount) - alreadyRefunded;
+  if (Number(refundAmount) > maxRefundable) {
+    throw new Error(`Refund amount exceeds the maximum refundable amount of ${maxRefundable} ${originalTx.asset}. Already refunded: ${alreadyRefunded}`);
+  }
+
+  // Find the sender's wallet to receive the refund
+  const senderWallet = await prisma.wallet.findUnique({
+    where: { userId_chain: { userId: originalTx.userId, chain: RAIL } },
+  });
+  if (!senderWallet) {
+    throw new Error('Sender wallet not found. Cannot return funds.');
+  }
+
+  // Find the recipient's wallet to debit the funds from
+  let recipientWallet;
+  if (originalTx.recipientPhoneNumber) {
+    const recipientUser = await prisma.user.findFirst({
+      where: { phoneNumber: originalTx.recipientPhoneNumber },
+    });
+    if (recipientUser) {
+      recipientWallet = await prisma.wallet.findUnique({
+        where: { userId_chain: { userId: recipientUser.id, chain: RAIL } },
+      });
+    }
+  } else if (originalTx.destination) {
+    recipientWallet = await prisma.wallet.findFirst({
+      where: { publicKey: originalTx.destination },
+    });
+  }
+
+  if (!recipientWallet) {
+    throw new Error('Recipient wallet is not managed on this platform. Reversals from external addresses are impossible.');
+  }
+
+  // Execute the compensating Stellar payment
+  const secretKey = decrypt(recipientWallet.encryptedSecretKey);
+
+  const refundTx = await prisma.transaction.create({
+    data: {
+      userId: originalTx.userId, // Credit goes back to the sender user
+      type: 'refund',
+      amount: String(refundAmount),
+      asset: originalTx.asset,
+      destination: senderWallet.publicKey,
+      rail: RAIL,
+      status: 'processing',
+      metadata: {
+        originalTransactionId: originalTx.id,
+        refundReason: reason,
+        adminId,
+        initiatedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  try {
+    const submission = await stellarAdapter.submitPayment({
+      secretKey,
+      destination: senderWallet.publicKey,
+      amount: String(refundAmount),
+      asset: originalTx.asset,
+      memo: originalTx.id.slice(0, 20), // custom memo referencing original tx id
+      memoType: 'text',
+    });
+
+    const updatedRefund = await prisma.transaction.update({
+      where: { id: refundTx.id },
+      data: {
+        status: 'success',
+        txHash: submission.txHash,
+        explorerUrl: submission.explorerUrl,
+        metadata: {
+          ...refundTx.metadata,
+          settledAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    // Update original transaction metadata to link the refund
+    const originalMeta = typeof originalTx.metadata === 'object' && originalTx.metadata !== null ? originalTx.metadata : {};
+    const currentRefunds = originalMeta.refunds || [];
+    await prisma.transaction.update({
+      where: { id: originalTx.id },
+      data: {
+        metadata: {
+          ...originalMeta,
+          refunds: [
+            ...currentRefunds,
+            {
+              refundTransactionId: updatedRefund.id,
+              amount: String(refundAmount),
+              reason,
+              adminId,
+              timestamp: new Date().toISOString(),
+            },
+          ],
+        },
+      },
+    });
+
+    await writeAuditLog({
+      actorType: 'administrator',
+      actorId: adminId,
+      action: 'admin.transaction.refunded',
+      entityType: 'Transaction',
+      entityId: String(originalTx.id),
+      metadata: { refundTransactionId: updatedRefund.id, amount: String(refundAmount), reason },
+    });
+
+    return updatedRefund;
+  } catch (error) {
+    const originalMeta = typeof originalTx.metadata === 'object' && originalTx.metadata !== null ? originalTx.metadata : {};
+    await prisma.transaction.update({
+      where: { id: refundTx.id },
+      data: {
+        status: 'failed',
+        metadata: {
+          ...originalMeta,
+          failedAt: new Date().toISOString(),
+          error: error.message,
+        },
+      },
+    });
+    throw error;
+  }
+};
+
 module.exports = {
   executePayment,
   calculateFee,
   buildReceipt,
+  executeRefund,
 };

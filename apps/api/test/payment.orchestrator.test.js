@@ -134,6 +134,7 @@ test('buildReceipt: shapes a receipt from a successful transaction', () => {
   const tx = { id: 'tx_1', status: 'success', amount: '100.0000000', asset: 'USDC', rail: 'stellar', explorerUrl: 'https://stellar.expert/abc123' };
   assert.deepEqual(buildReceipt({ transaction: tx }), {
     transactionId: 'tx_1',
+    receiptId: 'SDA-tx_1',
     status: 'success',
     amount: '100.0000000',
     asset: 'USDC',

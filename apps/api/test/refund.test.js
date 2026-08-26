@@ -1,0 +1,151 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+
+const injectMock = (relativeFromSrc, exports) => {
+  const filename = path.resolve(__dirname, '../src', `${relativeFromSrc}.js`);
+  require.cache[filename] = { id: filename, filename, loaded: true, exports };
+};
+
+// Mock structures
+const mockOriginalTx = {
+  id: 'tx_original_123',
+  userId: 'user_123',
+  type: 'send',
+  amount: '100.0000000',
+  asset: 'XLM',
+  status: 'success',
+  recipientPhoneNumber: '+2348011112222',
+  destination: 'GABCrecipient',
+  metadata: { fee: '1.0000000', refunds: [] },
+};
+
+const mockSenderWallet = {
+  id: 'sender_wallet_id',
+  userId: 'user_123',
+  chain: 'stellar',
+  publicKey: 'GABCsender',
+  phoneNumber: '+2348000000001',
+};
+
+const mockRecipientWallet = {
+  id: 'recipient_wallet_id',
+  userId: 'user_recipient_123',
+  chain: 'stellar',
+  publicKey: 'GABCrecipient',
+  encryptedSecretKey: 'encrypted_secret_key',
+};
+
+// Database queries/mocks
+const prismaMock = {
+  transaction: {
+    findUnique: async ({ where }) => {
+      if (where.id === 'tx_original_123') return mockOriginalTx;
+      return null;
+    },
+    findMany: async ({ where }) => {
+      // Find all successful refund transactions
+      if (where.type === 'refund' && where.status === 'success') {
+        return []; // starts empty
+      }
+      return [];
+    },
+    create: async ({ data }) => {
+      return { id: 'refund_tx_new', status: 'processing', ...data };
+    },
+    update: async ({ where, data }) => {
+      if (where.id === 'tx_original_123') {
+        mockOriginalTx.metadata = data.metadata;
+        return mockOriginalTx;
+      }
+      return { id: where.id, ...data };
+    },
+  },
+  wallet: {
+    findUnique: async ({ where }) => {
+      if (where.userId_chain && where.userId_chain.userId === 'user_123') return mockSenderWallet;
+      return null;
+    },
+    findFirst: async ({ where }) => {
+      if (where.publicKey === 'GABCrecipient') return mockRecipientWallet;
+      return null;
+    },
+  },
+  user: {
+    findFirst: async ({ where }) => {
+      if (where.phoneNumber === '+2348011112222') return { id: 'user_recipient_123' };
+      return null;
+    },
+  },
+  auditLog: {
+    create: async () => ({}),
+  },
+};
+
+const cryptoServiceMock = {
+  decrypt: (key) => 'SA_RECIPIENT_SECRET',
+  encrypt: (key) => 'encrypted',
+};
+
+const stellarAdapterMock = {
+  submitPayment: async ({ secretKey, destination, amount, asset, memo, memoType }) => {
+    assert.equal(secretKey, 'SA_RECIPIENT_SECRET');
+    assert.equal(destination, 'GABCsender');
+    assert.equal(asset, 'XLM');
+    return {
+      txHash: 'stellar_refund_hash_123',
+      explorerUrl: 'https://stellar.expert/refund_hash',
+    };
+  },
+};
+
+injectMock('common/prisma', prismaMock);
+injectMock('services/crypto.service', cryptoServiceMock);
+injectMock('wallet/stellar.adapter', stellarAdapterMock);
+
+const { executeRefund } = require('../src/payment/payment.orchestrator');
+
+test('executeRefund: performs successful refund and updates metadata link', async () => {
+  const result = await executeRefund({
+    transactionId: 'tx_original_123',
+    reason: 'failed_fulfillment',
+    amount: '50.0000000',
+    adminId: 'admin_test',
+  });
+
+  assert.equal(result.status, 'success');
+  assert.equal(result.txHash, 'stellar_refund_hash_123');
+  assert.equal(result.amount, '50.0000000');
+  assert.equal(result.metadata.refundReason, 'failed_fulfillment');
+  assert.equal(result.metadata.originalTransactionId, 'tx_original_123');
+
+  // Check linking in original transaction's metadata
+  assert.ok(mockOriginalTx.metadata.refunds);
+  assert.equal(mockOriginalTx.metadata.refunds.length, 1);
+  assert.equal(mockOriginalTx.metadata.refunds[0].amount, '50.0000000');
+  assert.equal(mockOriginalTx.metadata.refunds[0].reason, 'failed_fulfillment');
+});
+
+test('executeRefund: rejects invalid refund reason', async () => {
+  await assert.rejects(
+    () => executeRefund({
+      transactionId: 'tx_original_123',
+      reason: 'wrong_reason',
+      adminId: 'admin_test',
+    }),
+    /Invalid refund reason/
+  );
+});
+
+test('executeRefund: prevents refund amount exceeding original transaction amount', async () => {
+  // Try to refund 150 XLM on top of the already refunded 50 XLM (limit is 100)
+  await assert.rejects(
+    () => executeRefund({
+      transactionId: 'tx_original_123',
+      reason: 'operator_mistake',
+      amount: '60.0000000',
+      adminId: 'admin_test',
+    }),
+    /Refund amount exceeds the maximum refundable amount/
+  );
+});
