@@ -88,14 +88,47 @@ apps/api/
 
 ## API Routes
 
-All JSON responses use a consistent envelope:
+All JSON responses use a consistent envelope. Every response (header and body)
+carries a `correlationId` you can use to match a failure against server logs:
 
 ```jsonc
 // success
-{ "success": true, "message": "…", "data": { /* … */ } }
+{ "success": true, "message": "…", "correlationId": "…", "data": { /* … */ } }
 // error
-{ "success": false, "message": "…" }
+{
+  "success": false,
+  "message": "…",
+  "correlationId": "…",
+  "error": {
+    "version": "1.0",        // error envelope version — bump = breaking shape change
+    "code": "validation_error", // stable machine-readable code — branch on this, never the message
+    "message": "…",
+    "correlationId": "…",
+    "details": { }           // optional, omitted when empty
+  }
+}
 ```
+
+The error code catalog is `src/errors/catalog.js`. Core codes and their HTTP
+statuses:
+
+| code                | status | meaning                                  |
+| ------------------- | ------ | ---------------------------------------- |
+| `validation_error`  | 400    | malformed request / validation failure   |
+| `unauthorized`      | 401    | missing or invalid authentication        |
+| `forbidden`         | 403    | authenticated but not allowed            |
+| `not_found`         | 404    | resource does not exist                  |
+| `conflict`          | 409    | duplicate / state conflict (e.g. P2002)  |
+| `rate_limited`      | 429    | too many requests                        |
+| `provider_error`    | 502    | an upstream provider failed              |
+| `service_unavailable`| 503   | temporary unavailability                 |
+| `internal_error`    | 500    | unexpected — message is always generic   |
+
+Messages for `internal_error` are never sent verbatim (they can leak secrets or
+provider internals); the real error is only logged/reported. Throw
+`AppError` (`src/errors/AppError.js`) from controllers/services to carry a
+stable code and status, or set `error.statusCode` on a plain `Error` to map by
+status.
 
 ### Health
 

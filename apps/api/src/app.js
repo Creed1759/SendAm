@@ -21,6 +21,8 @@ const logger = require('./utils/logger');
 const prisma = require('./common/prisma');
 const { correlationMiddleware } = require('./observability/context');
 const { requestMetrics, metricsHandler, increment } = require('./observability/metrics');
+const { AppError } = require('./errors');
+const { getContext } = require('./observability/context');
 
 const app = express();
 
@@ -73,6 +75,9 @@ const limiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   store: new PostgresRateStore(),
+  // 429s flow through the standard error envelope so clients get a stable
+  // `rate_limited` code instead of the express-rate-limit default shape.
+  handler: (_req, _res, next) => next(new AppError('rate_limited')),
 });
 app.use('/api/', limiter);
 
@@ -83,14 +88,15 @@ app.get('/metrics', metricsHandler);
 // Health check for uptime monitors and platform probes. Not rate-limited and
 // requires no auth; reports 503 if the database link is down.
 app.get('/health', async (req, res) => {
+  const correlationId = getContext().correlationId || null;
   try {
     await prisma.$queryRaw`SELECT 1`;
     increment('sendam_health_checks_total', { status: 'ok' });
-    res.status(200).json({ status: 'ok', db: 'connected', uptime: process.uptime() });
+    res.status(200).json({ status: 'ok', db: 'connected', uptime: process.uptime(), correlationId });
   } catch (error) {
     increment('sendam_health_checks_total', { status: 'degraded' });
     logger.error('health_check_failed', error);
-    res.status(503).json({ status: 'degraded', db: 'disconnected', uptime: process.uptime() });
+    res.status(503).json({ status: 'degraded', db: 'disconnected', uptime: process.uptime(), correlationId });
   }
 });
 

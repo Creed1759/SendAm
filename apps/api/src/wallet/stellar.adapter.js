@@ -6,6 +6,7 @@ const axios = require("axios");
 const logger = require("../utils/logger");
 const config = require("../config/env");
 const { assertValidAmount } = require("../utils/money");
+const { outboundHeaders } = require("../observability/context");
 
 const chain = "stellar";
 
@@ -130,6 +131,7 @@ const fundTestnetAccount = async (publicKey) => {
     try {
       const response = await axios.get(
         `https://friendbot.stellar.org?addr=${encodeURIComponent(publicKey)}`,
+        { headers: outboundHeaders() },
       );
       return { funded: true, data: response.data };
     } catch (error) {
