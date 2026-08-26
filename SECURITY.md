@@ -83,6 +83,39 @@ Before any real-money launch:
 - Add audit logging for sensitive actions, plus monitoring and alerting.
 - Complete legal, compliance, KYC, AML, and custody review where required.
 
+## Secret Scanning & Push Protection
+
+Automated secret scanning runs on every push and pull request to `main` using
+[gitleaks](https://github.com/gitleaks/gitleaks) (`.gitleaks.toml`).
+The CI workflow (`.github/workflows/secret-scan.yml`) detects:
+
+- Stellar secret keys (`S...` 56-char seeds) and seed phrases.
+- Database and Redis connection strings with embedded passwords.
+- `JWT_SECRET`, `ENCRYPTION_KEY`, and generic API key/secret assignments.
+- PEM private keys, AWS secret keys, and WhatsApp / Meta tokens.
+
+A **self-test job** seeds a temporary file with fake secrets and verifies
+gitleaks catches them on every CI run — proving the ruleset is active.
+
+### Handling a detection
+
+- **False positive?** Add a targeted allowlist entry in `.gitleaks.toml` and
+  document it in the PR. See [`docs/SECRET-SCANNING.md`](docs/SECRET-SCANNING.md)
+  for the review process.
+- **Real credential?** Do not merge. Rotate the credential immediately, remove
+  the secret from git history, audit access logs, and re-run CI. The full
+  rotation runbook is in [`docs/SECRET-SCANNING.md`](docs/SECRET-SCANNING.md#credential-rotation-response).
+
+### Local enforcement
+
+Contributors can install a pre-push hook or run the self-test locally:
+
+```bash
+./scripts/secret-scan-self-test.sh   # requires gitleaks binary
+```
+
+See [`docs/SECRET-SCANNING.md`](docs/SECRET-SCANNING.md) for setup details.
+
 ## Responsible Use During Development
 
 - Use Stellar **Testnet** for development; never use real funds.
