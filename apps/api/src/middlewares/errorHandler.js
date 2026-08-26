@@ -1,25 +1,8 @@
 const logger = require('../utils/logger');
 const { captureException } = require('../observability/errors');
-
-// Express identifies error-handling middleware by arity (4 params). The `_req`
-// and `_next` arguments must be declared even though they are unused here —
-// removing them would demote this to a regular middleware and break error
-// propagation.
-const errorHandler = (err, req, res, _next) => {
-  logger.error('http_request_exception', {
-    error: err,
-    method: req.method,
-    path: req.path,
-  });
-  captureException(err, { source: 'http', method: req.method, path: req.path });
-  
-  const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
-  
-  res.status(statusCode).json({
-    success: false,
-    message: err.message || 'Server Error',
-    stack: process.env.NODE_ENV === 'production' ? null : err.stack,
-  });
+module.exports = (err, req, res, _next) => {
+  logger.error('error', { err });
+  captureException(err);
+  const status = err.type === 'entity.too:large' ? 413 : err.code === 'ETIMEDOUT' ? 504 : 500;
+  res.status(status).json({ success: false, message: status >= 400 ? 'Request failed' : 'Server error' });
 };
-
-module.exports = errorHandler;
