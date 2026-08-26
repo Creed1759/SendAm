@@ -89,6 +89,9 @@ const isWriteMethod = (config) => {
  * @param {function} [opts.now] - injectable clock for testing.
  */
 const attachHorizonResilience = (httpClient, { baseUrls = [], timeoutMs = 10000, circuit = {}, now = Date.now } = {}) => {
+  if (!httpClient || !httpClient.interceptors) {
+    return httpClient || { getHealth: () => [], _endpoints: [] };
+  }
   const threshold = circuit.threshold ?? 3;
   const cooldownMs = circuit.cooldownMs ?? 30000;
 
