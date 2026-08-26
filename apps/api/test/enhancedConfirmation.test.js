@@ -21,11 +21,16 @@ const prismaMock = {
     findFirst: async () => null, // default: never transacted successfully
   },
   alias: {
+    findUnique: async () => null,
     findFirst: async () => null, // default: not a saved contact
   },
   user: {
     findUnique: async () => userMock,
-    update: async ({ where, data }) => {
+    updateMany: async () => {
+      userMock.pendingSend = null;
+      return { count: 1 };
+    },
+    update: async ({ data }) => {
       userMock.pendingSend = data.pendingSend;
       return userMock;
     },
@@ -43,6 +48,9 @@ injectMock('payment/payment.orchestrator', {
     transaction: { id: 'tx_rec_1', status: 'success' },
     receipt: { transactionId: 'tx_rec_1' },
   }),
+});
+injectMock('pricing/pricing.service', {
+  createQuote: async () => ({ id: 'quote_rec_1', expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString() }),
 });
 injectMock('compliance/pin.service', {
   verifyPin: (text, hash) => text === '1234' && hash === 'hashed:1234',
@@ -78,6 +86,7 @@ test('high-risk recipient identification, confirmation, and PIN input flow', asy
   assert.equal(sentMessages.length, 3);
   assert.ok(sentMessages[2].includes('Recipient confirmed'));
   assert.ok(sentMessages[2].includes('Reply with your PIN'));
+  assert.ok(sentMessages[2].includes('Quote expires:'));
   assert.equal(userMock.pendingSend.highRiskConfirmed, true);
 
   // Step 4: Reply PIN to execute
