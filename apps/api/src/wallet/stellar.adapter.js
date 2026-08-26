@@ -112,6 +112,22 @@ const getTransactionUrl = (txHash) => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const FUNDING_MAX_ATTEMPTS = 3;
+const NATIVE_BASE_RESERVE = Number(process.env.STELLAR_BASE_RESERVE_XLM || 0.5);
+const NATIVE_RESERVE_BUFFER = Number(process.env.STELLAR_RESERVE_BUFFER_XLM || 0.1);
+
+function assertNativeReserve(account, feeStroops, additionalSubentries = 0) {
+  const native = account.balances.find((balance) => balance.asset_type === 'native');
+  const available = Number(native?.balance || 0);
+  const subentries = Number(account.subentry_count || 0) + additionalSubentries;
+  const required = NATIVE_BASE_RESERVE * (2 + subentries)
+    + NATIVE_RESERVE_BUFFER + Number(feeStroops || 0) / 1e7;
+  if (!Number.isFinite(available) || available < required) {
+    throw new Error(
+      `Insufficient XLM reserve. Keep at least ${required.toFixed(7)} XLM for account reserve and fees, then retry.`,
+    );
+  }
+  return { available, required };
+}
 
 // Friendbot is unreliable (frequent 5xx/timeouts), and a failed first-time
 // funding used to leave a user with an empty wallet and no way to recover.
@@ -297,6 +313,7 @@ const submitPayment = async ({
     let lastError;
     for (let attempt = 1; attempt <= SEND_MAX_ATTEMPTS; attempt += 1) {
       const sourceAccount = await server.loadAccount(sourcePublicKey);
+      assertNativeReserve(sourceAccount, fee);
 
       const builder = new StellarSdk.TransactionBuilder(sourceAccount, {
         fee,
@@ -406,6 +423,7 @@ const establishTrustline = async ({ secretKey, assetCode }) => {
   }
 
   const fee = await server.fetchBaseFee();
+  assertNativeReserve(account, fee, 1);
   const networkPassphrase =
     config.stellar.network === "testnet"
       ? StellarSdk.Networks.TESTNET
@@ -442,6 +460,7 @@ module.exports = {
   getBalances,
   submitPayment,
   establishTrustline,
+  assertNativeReserve,
   resolveAsset,
   validateAddress,
   isMuxedAddress,
