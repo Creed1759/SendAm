@@ -121,9 +121,10 @@ const attachHorizonResilience = (httpClient, { baseUrls = [], timeoutMs = 10000,
     }
   };
 
-  // Rewrite the outgoing request to the first healthy endpoint *before* it hits
-  // the wire, so a known-open (circuit-broken) endpoint is never even contacted.
-  // This also gives us a single, fast fail when every endpoint is open.
+  if (!httpClient || !httpClient.interceptors) {
+    return { getHealth: () => [], _endpoints: [] };
+  }
+
   httpClient.interceptors.request.use((config) => {
     if (config.__horizonRetrying) return config;
     const hosts = available();

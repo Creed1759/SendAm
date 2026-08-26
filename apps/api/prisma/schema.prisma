@@ -16,7 +16,12 @@ model User {
   pinSetAt     DateTime?
   pendingSend    Json?
   welcomeSentAt  DateTime?
-  contactsJson   Json?
+  contactsJson               Json?
+  lastCustomerInteractionAt  DateTime?
+  messagingConsent           String    @default("opted_in")
+  consentSource             String?   @default("system")
+  consentUpdatedAt          DateTime? @default(now())
+  locale                     String    @default("en")
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
