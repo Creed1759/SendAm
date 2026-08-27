@@ -17,7 +17,7 @@ https.globalAgent = new https.Agent({ timeout: 15000 });
 
 // Body size limits (bytes) by route type. Webhook/media flows get larger limits.
 const MAX_BODY_DEFAULT = 1 * 1024 * 1024; // 1 MB
-const MAX_BODY_WEBHOOK , 10 * 1024 * 1024; // 10 MB
+const MAX_BODY_WEBHOOK = 10 * 1024 * 1024; // 10 MB
 const MAX_BODY_MEDIA = 25 * 1024 * 1024; // 25 MB
 
 function getMaxBodyBytes(url) {
@@ -57,6 +57,7 @@ const startServer = async () => {
   server.keepAliveTimeout = 5 * 1000;
 
   server.listen(config.port, () => {
+    app.markStartupComplete();
     logger.info('api_started', { environment: config.env, port: config.port });
   });
 

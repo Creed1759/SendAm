@@ -1,8 +1,38 @@
 const logger = require('../utils/logger');
 const { captureException } = require('../observability/errors');
-module.exports = (err, req, res, _next) => {
-  logger.error('error', { err });
-  captureException(err);
-  const status = err.type === 'entity.too:large' ? 413 : err.code === 'ETIMEDOUT' ? 504 : 500;
-  res.status(status).json({ success: false, message: status >= 400 ? 'Request failed' : 'Server error' });
+const { getContext } = require('../observability/context');
+const { normalizeError } = require('../errors');
+const { errorEnvelope } = require('../errors/envelope');
+
+// Express identifies error-handling middleware by arity (4 params). The `_req`
+// and `_next` arguments must be declared even though they are unused here —
+// removing them would demote this to a regular middleware and break error
+// propagation.
+const errorHandler = (err, req, res, _next) => {
+  const normalized = normalizeError(err);
+  const correlationId = getContext().correlationId || null;
+
+  const status = err.type === 'entity.too:large' ? 413 : err.code === 'ETIMEDOUT' ? 504 : normalized.statusCode;
+  normalized.statusCode = status;
+
+  logger.error('http_request_exception', {
+    error: err,
+    code: normalized.code,
+    statusCode: status,
+    method: req.method,
+    path: req.path,
+  });
+  captureException(err, {
+    source: 'http',
+    code: normalized.code,
+    method: req.method,
+    path: req.path,
+  });
+
+  if (correlationId && !res.get('x-correlation-id')) {
+    res.set('x-correlation-id', correlationId);
+  }
+  res.status(status).json(errorEnvelope(err, { correlationId, normalized }));
 };
+
+module.exports = errorHandler;

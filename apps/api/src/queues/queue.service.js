@@ -12,7 +12,10 @@ let connection;
 try {
   ({ Queue, Worker } = require('bullmq'));
   IORedis = require('ioredis');
-  connection = config.redis.url ? new IORedis(config.redis.url, { maxRetriesPerRequest: null }) : undefined;
+  connection = config.redis.url ? new IORedis(config.redis.url, {
+    maxRetriesPerRequest: null,
+    tls: config.redis.ca ? { ca: config.redis.ca, rejectUnauthorized: true } : undefined,
+  }) : undefined;
   connection?.on('error', (error) => logger.error('queue_redis_error', { message: error.message }));
 } catch (_error) {
   logger.warn('BullMQ is not installed; webhook jobs will run inline in development.');
@@ -27,6 +30,8 @@ const getQueue = (name) => {
   if (!queues.has(name)) queues.set(name, new Queue(name, { connection }));
   return queues.get(name);
 };
+
+const { moveToDeadLetterQueue } = require('./dlq.service');
 
 const registerProcessor = (name, processor) => {
   const observedProcessor = async (job, token) => {
@@ -46,6 +51,13 @@ const registerProcessor = (name, processor) => {
         increment('sendam_queue_jobs_total', { queue: name, status: 'failed' });
         logger.error('queue_job_failed', { queue: name, jobId: job.id, error });
         captureException(error, { source: 'worker', queue: name, jobId: job.id });
+
+        const maxAttempts = job?.opts?.attempts || 3;
+        if (job && (job.attemptsMade || 1) >= maxAttempts) {
+          moveToDeadLetterQueue(job, error, { queueName: name }).catch((dlqErr) => {
+            logger.error('dlq_move_failed', { queue: name, jobId: job.id, error: dlqErr.message });
+          });
+        }
         throw error;
       } finally {
         observeDuration(
@@ -69,13 +81,21 @@ const registerProcessor = (name, processor) => {
       jobId: job.id,
       jobName: job.name,
     }));
-    worker.on('failed', (job, error) => logger.error('queue_job_failed', {
-      queue: name,
-      jobId: job?.id,
-      jobName: job?.name,
-      attemptsMade: job?.attemptsMade,
-      message: error.message,
-    }));
+    worker.on('failed', (job, error) => {
+      logger.error('queue_job_failed', {
+        queue: name,
+        jobId: job?.id,
+        jobName: job?.name,
+        attemptsMade: job?.attemptsMade,
+        message: error.message,
+      });
+      const maxAttempts = job?.opts?.attempts || 3;
+      if (job && (job.attemptsMade || 1) >= maxAttempts) {
+        moveToDeadLetterQueue(job, error, { queueName: name }).catch((dlqErr) => {
+          logger.error('dlq_move_failed', { queue: name, jobId: job?.id, error: dlqErr.message });
+        });
+      }
+    });
     worker.on('error', (error) => {
       logger.error('queue_worker_error', { queue: name, error });
       captureException(error, { source: 'worker_runtime', queue: name });
@@ -114,6 +134,7 @@ const enqueue = async (name, jobName, data, options = {}) => {
 };
 
 const closeQueues = async () => {
+  await Promise.all([...workers.values()].map((worker) => worker.pause()));
   await Promise.all([...workers.values()].map((worker) => worker.close()));
   await Promise.all([...queues.values()].map((queue) => queue.close()));
   workers.clear();
@@ -122,8 +143,17 @@ const closeQueues = async () => {
   if (connection) await connection.quit();
 };
 
+const pingRedis = async (timeoutMs = 1000) => {
+  if (!connection) throw new Error('Redis connection is unavailable');
+  await Promise.race([
+    connection.ping(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Redis health check timed out')), timeoutMs)),
+  ]);
+};
+
 module.exports = {
   enqueue,
   registerProcessor,
   closeQueues,
+  pingRedis,
 };

@@ -94,6 +94,9 @@ const attachHorizonResilience = (httpClient, {
   circuit = {},
   now = Date.now,
 } = {}) => {
+  if (!httpClient || !httpClient.interceptors) {
+    return httpClient || { getHealth: () => [], _endpoints: [] };
+  }
   const threshold = circuit.threshold ?? 3;
   const cooldownMs = circuit.cooldownMs ?? 30000;
 
@@ -162,6 +165,10 @@ const attachHorizonResilience = (httpClient, {
     writeUncertain: 0,
   };
 
+  if (!httpClient || !httpClient.interceptors) {
+    return { getHealth: () => [], _endpoints: [] };
+  }
+
   // Rewrite the outgoing request to the first healthy endpoint *before* it hits
   // the wire, so a known-open (circuit-broken) endpoint is never even contacted.
   // This also gives us a single, fast fail when every endpoint is open.
@@ -201,7 +208,7 @@ const attachHorizonResilience = (httpClient, {
         config.__lastError || new HorizonOutageError('All Horizon endpoints are unavailable (circuit open).'),
       );
     }
-    if (totalTimeoutMs && (now() - (config.__startTime || now()) > totalTimeoutMs) {
+    if (totalTimeoutMs && (now() - (config.__startTime || now()) > totalTimeoutMs)) {
       metrics.timeouts += 1;
       return Promise.reject(
         config.__lastError || new HorizonTimeoutError('Horizon request timed out after total execution limit.'),
@@ -254,20 +261,20 @@ const attachHorizonResilience = (httpClient, {
     (error) => {
       const config = error.config || {};
       // Requests we already re-dispatched must not be re-orchestrated.
-      if (config.__horyzronRetrying) return Promise.reject(error);
+      if (config.__horizonRetrying) return Promise.reject(error);
       if (!baseUrls.length) return Promise.reject(error);
 
       // Check for total execution timeout before handling other failures.
-      if (totalTimeoutMs && (now() - (config.__startTime || now()) > totalTimeoutMs) {
+      if (totalTimeoutMs && (now() - (config.__startTime || now()) > totalTimeoutMs)) {
         metrics.timeouts += 1;
         return Promise.reject(config.__lastError || new HorizonTimeoutError('Horizon request timed out after total execution limit.'));
       }
 
       // Surface safe errors for body/response limit breaches instead of failover.
-      if (isPayloadToOLarge(error)) {
-        metrics.payloadToOLarge += 1;
+      if (isPayloadTooLarge(error)) {
+        metrics.payloadTooLarge += 1;
         return Promise.reject(
-          error instanceof HorizonLoadToOLargeError ? error : new HorizonLoadToOLargeError('Horizon request payload too large.'),
+          error instanceof HorizonLoadTooLargeError ? error : new HorizonLoadTooLargeError('Horizon request payload too large.'),
         );
       }
 
@@ -318,5 +325,5 @@ module.exports = {
   HorizonTimeoutError,
   HorizonOutageError,
   HorizonWriteUncertainError,
-  HorizonLoadToOLargeError,
+  HorizonLoadTooLargeError,
 };
