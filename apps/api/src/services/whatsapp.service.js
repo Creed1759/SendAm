@@ -2,6 +2,7 @@ const axios = require('axios');
 const config = require('../config/env');
 const logger = require('../utils/logger');
 const { increment } = require('../observability/metrics');
+const { outboundHeaders } = require('../observability/context');
 const { ProviderSkippedError } = require('../compliance/providerErrors');
 
 // ---------------------------------------------------------------------------
@@ -203,7 +204,8 @@ const sendTextMessage = async (to, body, options = {}) => {
     const response = await axiosImpl.post(url, payload, {
       headers: {
         'Authorization': `Bearer ${config.whatsapp.token}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...outboundHeaders(),
       }
     });
 
@@ -413,7 +415,7 @@ const deleteUserData = async (phoneNumber) => {
   await axios.post(url, {
     user_id: phoneNumber,
     app_id: config.whatsapp.appId || process.env.WHATSAPP_APP_ID,
-  }, { timeout: 30000, headers: { 'content-type': 'application/json' } });
+  }, { timeout: 30000, headers: { 'content-type': 'application/json', ...outboundHeaders() } });
   return { status: 'success' };
 };
 
