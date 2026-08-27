@@ -14,6 +14,7 @@ const startServer = async () => {
   await connectDB();
 
   const server = app.listen(config.port, () => {
+    app.markStartupComplete();
     logger.info('api_started', { environment: config.env, port: config.port });
   });
 

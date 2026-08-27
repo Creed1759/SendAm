@@ -12,7 +12,10 @@ let connection;
 try {
   ({ Queue, Worker } = require('bullmq'));
   IORedis = require('ioredis');
-  connection = config.redis.url ? new IORedis(config.redis.url, { maxRetriesPerRequest: null }) : undefined;
+  connection = config.redis.url ? new IORedis(config.redis.url, {
+    maxRetriesPerRequest: null,
+    tls: config.redis.ca ? { ca: config.redis.ca, rejectUnauthorized: true } : undefined,
+  }) : undefined;
   connection?.on('error', (error) => logger.error('queue_redis_error', { message: error.message }));
 } catch (_error) {
   logger.warn('BullMQ is not installed; webhook jobs will run inline in development.');
@@ -131,6 +134,7 @@ const enqueue = async (name, jobName, data, options = {}) => {
 };
 
 const closeQueues = async () => {
+  await Promise.all([...workers.values()].map((worker) => worker.pause()));
   await Promise.all([...workers.values()].map((worker) => worker.close()));
   await Promise.all([...queues.values()].map((queue) => queue.close()));
   workers.clear();
@@ -139,8 +143,17 @@ const closeQueues = async () => {
   if (connection) await connection.quit();
 };
 
+const pingRedis = async (timeoutMs = 1000) => {
+  if (!connection) throw new Error('Redis connection is unavailable');
+  await Promise.race([
+    connection.ping(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Redis health check timed out')), timeoutMs)),
+  ]);
+};
+
 module.exports = {
   enqueue,
   registerProcessor,
   closeQueues,
+  pingRedis,
 };

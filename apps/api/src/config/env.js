@@ -7,6 +7,7 @@ module.exports = {
   env,
   isProduction: env === 'production',
   databaseUrl: process.env.DATABASE_URL,
+  databaseCa: process.env.DATABASE_CA,
   messageTransport: process.env.MESSAGE_TRANSPORT || 'meta',
   encryptionKey: process.env.ENCRYPTION_KEY,
   activeKeyVersion: process.env.ACTIVE_KEY_VERSION || 'v1',
@@ -58,6 +59,7 @@ module.exports = {
   },
   redis: {
     url: process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL,
+    ca: process.env.REDIS_CA,
   },
   // BullMQ Worker tuning for the background worker process (src/worker.js).
   worker: {
@@ -65,6 +67,14 @@ module.exports = {
     lockDurationMs: Number(process.env.WORKER_LOCK_DURATION_MS || 30000),
     heartbeatIntervalMs: Number(process.env.WORKER_HEARTBEAT_INTERVAL_MS || 30000),
     shutdownTimeoutMs: Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS || 10000),
+  },
+  health: {
+    timeoutMs: Number(process.env.HEALTH_CHECK_TIMEOUT_MS || 1000),
+  },
+  databasePool: {
+    max: Number(process.env.DATABASE_POOL_MAX || (process.env.PROCESS_TYPE === 'worker' ? 5 : 10)),
+    connectionTimeoutMs: Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS || 5000),
+    poolTimeoutMs: Number(process.env.DATABASE_POOL_TIMEOUT_MS || 10000),
   },
   // Per-customer WhatsApp message ordering (issue #157). See
   // queues/ordering.service.js for how these are used.

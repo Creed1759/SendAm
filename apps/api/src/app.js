@@ -23,8 +23,10 @@ const { correlationMiddleware } = require('./observability/context');
 const { requestMetrics, metricsHandler, increment } = require('./observability/metrics');
 const { AppError } = require('./errors');
 const { getContext } = require('./observability/context');
+const { pingRedis } = require('./queues/queue.service');
 
 const app = express();
+let startupComplete = false;
 
 // Middlewares
 app.use(correlationMiddleware);
@@ -126,18 +128,27 @@ app.use('/api/', limiter);
 // traffic spike cannot blind monitoring, and protected by a dedicated token.
 app.get('/metrics', metricsHandler);
 
-// Health check for uptime monitors and platform probes. Not rate-limited and
-// requires no auth; reports 503 if the database link is down.
-app.get('/health', async (req, res) => {
+app.get('/health/live', (_req, res) => {
+  res.status(200).json({ status: 'ok', uptime: process.uptime() });
+});
+
+app.get('/health/startup', (_req, res) => {
+  res.status(startupComplete ? 200 : 503).json({ status: startupComplete ? 'ok' : 'starting' });
+});
+
+app.get(['/health', '/health/ready'], async (req, res) => {
   const correlationId = getContext().correlationId || null;
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await Promise.race([
+      Promise.all([prisma.$queryRaw`SELECT 1`, pingRedis(config.health.timeoutMs)]),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Readiness check timed out')), config.health.timeoutMs)),
+    ]);
     increment('sendam_health_checks_total', { status: 'ok' });
-    res.status(200).json({ status: 'ok', db: 'connected', uptime: process.uptime(), correlationId });
+    res.status(200).json({ status: 'ok', db: 'connected', redis: 'connected', uptime: process.uptime(), correlationId });
   } catch (error) {
     increment('sendam_health_checks_total', { status: 'degraded' });
-    logger.error('health_check_failed', error);
-    res.status(503).json({ status: 'degraded', db: 'disconnected', uptime: process.uptime(), correlationId });
+    logger.error('readiness_check_failed', error);
+    res.status(503).json({ status: 'degraded', db: 'unknown', redis: 'unknown', uptime: process.uptime(), correlationId });
   }
 });
 
@@ -183,5 +194,7 @@ if (config.features.chatSim) {
 // Error Handling
 app.use(notFound);
 app.use(errorHandler);
+
+app.markStartupComplete = () => { startupComplete = true; };
 
 module.exports = app;
