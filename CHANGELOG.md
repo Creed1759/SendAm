@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Secret scanning with gitleaks: CI workflow (`.github/workflows/secret-scan.yml`),
+  custom ruleset (`.gitleaks.toml`) covering Stellar keys, provider tokens,
+  database URLs, and generic high-entropy secrets. Self-test validates the
+  scanner catches seeded fakes on every run. Local script
+  (`scripts/secret-scan-self-test.sh`) for pre-push verification. See
+  `docs/SECRET-SCANNING.md` for false-positive review and credential-rotation
+  response.
 - Code of Conduct (Contributor Covenant 2.1).
 - Payment submission retry on Stellar `tx_bad_seq` to handle concurrent sends
   from the same account.
