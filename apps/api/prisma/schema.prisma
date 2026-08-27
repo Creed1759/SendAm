@@ -247,6 +247,8 @@ model AuditLog {
   metadata   Json     @default("{}")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  previousHash String? @unique
+  hash         String? @unique
 
   @@index([actorType])
   @@index([action])
