@@ -24,7 +24,7 @@ export default function Dashboard() {
   }, []);
 
   if (loading) return <div className="flex justify-center py-20"><Loader size={32} /></div>;
-  if (error) return <div className="text-red-500 p-4 bg-red-50 rounded-lg">{error}</div>;
+  if (error) return <div className="text-red-500 p-4 bg-red-50 rounded-lg" role="alert">{error}</div>;
 
   return (
     <div className="min-w-0">
@@ -41,7 +41,7 @@ export default function Dashboard() {
       </div>
 
       <div className="mt-8 sm:mt-12 bg-white p-5 sm:p-8 rounded-2xl border border-gray-100 shadow-sm">
-        <h3 className="text-lg font-bold mb-4">Welcome to SendAm Admin</h3>
+        <h2 className="text-lg font-bold mb-4">Welcome to SendAm Admin</h2>
         <p className="text-gray-600 leading-relaxed max-w-3xl">
           This dashboard monitors the SendAm architecture: direct-custody wallets, payment orchestration, KYC, audit logs, and system health. All payments settle on Stellar.
         </p>

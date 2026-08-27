@@ -1,4 +1,5 @@
-import { useSearchParams, useMemo } from 'react-router-dom';
+import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 // Bridges an admin list page's cursor + filters to the URL so filter state and
 // pagination survive reloads and browser navigation. The API reads `after`,
@@ -8,6 +9,7 @@ export function useListQuery(filterKeys = []) {
 
   // Stable across renders so the fetch effect doesn't loop: identity only
   // changes when the serialised query string changes.
+  const queryString = searchParams.toString();
   const params = useMemo(() => {
     const entries = Object.fromEntries(searchParams.entries());
     const result = {};
@@ -16,18 +18,9 @@ export function useListQuery(filterKeys = []) {
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams.toString()]);
+  }, [queryString]);
 
   const entries = Object.fromEntries(searchParams.entries());
-
-  const setParam = (key, value) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (value == null || value === '') next.delete(key);
-      else next.set(key, value);
-      return next;
-    });
-  };
 
   const setFilter = (key, value) => {
     setSearchParams((prev) => {
