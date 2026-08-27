@@ -27,21 +27,62 @@ const app = express();
 // Middlewares
 app.use(correlationMiddleware);
 app.use(requestMetrics);
-app.use(helmet());
+// Security Middlewares
+const cspDirectives = config.isProduction ? {
+  defaultSrc: ["'none'"],
+  frameAncestors: ["'none'"],
+  baseUri: ["'none'"],
+  formAction: ["'none'"]
+} : {
+  defaultSrc: ["'self'"],
+  frameAncestors: ["'none'"],
+};
 
-// CORS: in production only the configured origins may call the API. Outside
-// production we fall back to open CORS for convenience, but warn if no
-// allowlist is set so it isn't forgotten before launch.
-if (config.corsOrigins.length > 0) {
-  app.use(cors({ origin: config.corsOrigins }));
-} else {
-  if (config.isProduction) {
-    logger.error('CORS_ORIGINS is not set in production — refusing all cross-origin requests.');
-  } else {
-    logger.warn('CORS_ORIGINS is not set; allowing all origins (development only).');
+app.use(helmet({
+  contentSecurityPolicy: { directives: cspDirectives },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+}));
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  next();
+});
+
+// CORS: explicitly define origin allowlists by environment. 
+// Cross-origin access strictly requires configuration.
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow non-browser requests (e.g. server-to-server, webhook)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    if (origin === 'null') {
+      increment('sendam_cors_rejected_total', { reason: 'null_origin' });
+      const err = new Error('CORS error: null origin not allowed');
+      err.name = 'CorsError';
+      return callback(err);
+    }
+    
+    if (config.corsOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    increment('sendam_cors_rejected_total', { reason: 'unapproved_origin' });
+    const err = new Error('Not allowed by CORS');
+    err.name = 'CorsError';
+    return callback(err);
+  },
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+app.use((err, req, res, next) => {
+  if (err.name === 'CorsError' || err.message.includes('CORS')) {
+    logger.warn('CORS request rejected', { origin: req.headers.origin, error: err.message });
+    return res.status(403).json({ success: false, message: err.message });
   }
-  app.use(cors({ origin: config.isProduction ? false : true }));
-}
+  next(err);
+});
 
 // Access logs: the verbose, colorized 'dev' format is great locally but unfit
 // for production log aggregation. Use the standard Apache 'combined' format in
