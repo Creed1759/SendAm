@@ -292,30 +292,32 @@ const submitPayment = async ({
 
     const stellarMemo = buildStellarMemo({ memo, memoType });
 
-    // Reload the account (fresh sequence), rebuild, sign, and submit on each
-    // attempt. Retry only on tx_bad_seq — any other failure is terminal.
+    let transaction;
+    let hash;
     let lastError;
     for (let attempt = 1; attempt <= SEND_MAX_ATTEMPTS; attempt += 1) {
-      const sourceAccount = await server.loadAccount(sourcePublicKey);
+      if (!transaction) {
+        const sourceAccount = await server.loadAccount(sourcePublicKey);
 
-      const builder = new StellarSdk.TransactionBuilder(sourceAccount, {
-        fee,
-        networkPassphrase,
-      }).addOperation(
-        StellarSdk.Operation.payment({
-          destination,
-          asset: resolveAsset(asset),
-          amount: normalizedAmount,
-        }),
-      );
+        const builder = new StellarSdk.TransactionBuilder(sourceAccount, {
+          fee,
+          networkPassphrase,
+        }).addOperation(
+          StellarSdk.Operation.payment({
+            destination,
+            asset: resolveAsset(asset),
+            amount: normalizedAmount,
+          }),
+        );
 
-      if (stellarMemo) {
-        builder.addMemo(stellarMemo);
+        if (stellarMemo) {
+          builder.addMemo(stellarMemo);
+        }
+
+        transaction = builder.setTimeout(30).build();
+        transaction.sign(sourceKeypair);
+        hash = safeHash(transaction);
       }
-
-      const transaction = builder.setTimeout(30).build();
-
-      transaction.sign(sourceKeypair);
 
       try {
         const txResponse = await server.submitTransaction(transaction);
@@ -324,21 +326,7 @@ const submitPayment = async ({
           explorerUrl: getTransactionUrl(txResponse.hash),
         };
       } catch (error) {
-        if (isBadSequence(error) && attempt < SEND_MAX_ATTEMPTS) {
-          lastError = error;
-          logger.warn(
-            `Payment hit tx_bad_seq (attempt ${attempt}/${SEND_MAX_ATTEMPTS}); reloading sequence and retrying.`,
-          );
-          await sleep(attempt * 250);
-          continue;
-        }
-
-        // Ambiguous write failure (timeout/connection loss): the transaction was
-        // sent to exactly one endpoint and never resubmitted, so we verify
-        // rather than risk a duplicate. If Horizon already ingested it, recover
-        // success; otherwise surface an explicit "uncertain" error.
         if (isHorizonWriteUncertain(error)) {
-          const hash = safeHash(transaction);
           if (hash) {
             try {
               const found = await server.transactions().transactionHash(hash).call();
@@ -347,12 +335,42 @@ const submitPayment = async ({
                 return { txHash: hash, explorerUrl: getTransactionUrl(hash) };
               }
             } catch (_) {
-              // Remains uncertain.
+              // Ignore lookup errors
             }
           }
-          throw new Error(
-            "Transaction submission status unknown after timeout; not resubmitting to avoid a duplicate.",
-          );
+
+          if (attempt < SEND_MAX_ATTEMPTS) {
+            logger.warn(`Payment uncertain (attempt ${attempt}/${SEND_MAX_ATTEMPTS}); resubmitting same envelope.`);
+            await sleep(attempt * 250);
+            continue;
+          } else {
+            throw new Error(
+              "Transaction submission status unknown after timeout; not resubmitting to avoid a duplicate.",
+            );
+          }
+        }
+
+        if (isBadSequence(error)) {
+          if (hash) {
+            try {
+              const found = await server.transactions().transactionHash(hash).call();
+              if (found) {
+                logger.info(`Recovered tx_bad_seq payment ${hash} via Horizon lookup.`);
+                return { txHash: hash, explorerUrl: getTransactionUrl(hash) };
+              }
+            } catch (_) {
+            }
+          }
+
+          if (attempt < SEND_MAX_ATTEMPTS) {
+            lastError = error;
+            logger.warn(
+              `Payment hit tx_bad_seq (attempt ${attempt}/${SEND_MAX_ATTEMPTS}); reloading sequence and retrying.`,
+            );
+            transaction = null;
+            await sleep(attempt * 250);
+            continue;
+          }
         }
 
         const friendlyMessage = getFriendlyPaymentError(error);
