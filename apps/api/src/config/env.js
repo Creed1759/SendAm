@@ -57,9 +57,40 @@ module.exports = {
     botWindowMs: Number(process.env.BOT_RATE_WINDOW_SEC || 60) * 1000,
     botMax: Number(process.env.BOT_RATE_MAX || 20),
   },
+  // Redis is the backbone of BullMQ queues, the WhatsApp DLQ and per-sender
+  // message ordering. These settings drive the connection policy in
+  // config/redis.js — TLS, reconnect backoff, command timeouts and Sentinel
+  // topology — so failures surface as metrics/alerts instead of silently
+  // dropping accepted work. See config/redis.js and the *.redis* tests.
   redis: {
     url: process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL,
     ca: process.env.REDIS_CA,
+    password: process.env.REDIS_PASSWORD,
+    // TLS is derived automatically from a `rediss://` URL or REDIS_CA. This
+    // forces a rejectUnauthorized TLS client whenever either is present.
+    tls: process.env.REDIS_TLS === 'true'
+      ? { rejectUnauthorized: process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false' }
+      : undefined,
+    connectTimeoutMs: Number(process.env.REDIS_CONNECT_TIMEOUT_MS || 10000),
+    commandTimeoutMs: Number(process.env.REDIS_COMMAND_TIMEOUT_MS || 2000),
+    // Exponential reconnect backoff: delay starts at retryMinMs and doubles up
+    // to retryMaxMs. Set REDIS_RETRY_MAX_RECONNECTS to bound total attempts
+    // (0/absent means reconnect forever).
+    retryMinMs: Number(process.env.REDIS_RETRY_MIN_MS || 250),
+    retryMaxMs: Number(process.env.REDIS_RETRY_MAX_MS || 8000),
+    maxReconnects: process.env.REDIS_RETRY_MAX_RECONNECTS
+      ? Number(process.env.REDIS_RETRY_MAX_RECONNECTS)
+      : Infinity,
+    enableReadyCheck: process.env.REDIS_ENABLE_READY_CHECK
+      ? process.env.REDIS_ENABLE_READY_CHECK === 'true'
+      : true,
+    keepAliveMs: Number(process.env.REDIS_KEEPALIVE_MS || 30000),
+    // Sentinel topology: when REDIS_SENTINEL_HOSTS ("host1:26379,host2:26379")
+    // and REDIS_SENTINEL_MASTER_NAME are set, the client connects through
+    // Sentinel and ioredis drives automatic failover. Still require rediss://
+    // in production for transport encryption.
+    sentinelHosts: process.env.REDIS_SENTINEL_HOSTS || '',
+    sentinelMasterName: process.env.REDIS_SENTINEL_MASTER_NAME || '',
   },
   // BullMQ Worker tuning for the background worker process (src/worker.js).
   worker: {
