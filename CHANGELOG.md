@@ -42,6 +42,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pollers separately from the HTTP API process (see `docs/BACKGROUND-WORKERS.md`).
 - `ISSUE_CLOSURE_CHECKLIST.md` — reusable closure/release checklist requiring
   acceptance-criteria evidence for PRs and releases.
+- Redis availability and recovery safeguards: a single shared connection policy
+  in `apps/api/src/config/redis.js` (TLS from `rediss://` / `REDIS_CA` /
+  `REDIS_TLS`, exponential bounded reconnect backoff, connect/command timeouts,
+  keep-alive, and Sentinel topology for automatic failover). All Redis consumers
+  (BullMQ queues, the WhatsApp DLQ, and per-sender ordering) now share one
+  connection so an outage surfaces as consistent metrics/alerts instead of
+  silently dropping accepted work. Disconnect, reconnect, failover, and recovery
+  transitions emit Prometheus metrics and operator logs, and an inline fallback
+  path is explicitly alarmed rather than silent. Tests:
+  `apps/api/test/redis.safeguards.test.js`.
 
 ### Changed
 
