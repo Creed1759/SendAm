@@ -135,6 +135,13 @@ app.get('/health', async (req, res) => {
   }
 });
 
+const path = require('path');
+const openapiSpecPath = path.join(__dirname, '../openapi.json');
+
+app.get(['/api/docs/openapi.json', '/api/docs'], (req, res) => {
+  res.sendFile(openapiSpecPath);
+});
+
 // Routes
 app.use('/webhook', webhookRoutes);
 app.use('/api/auth', authRoutes);

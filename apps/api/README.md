@@ -86,6 +86,19 @@ apps/api/
 
 ## Run
 
+## OpenAPI Specification (#161)
+
+SendAm publishes a machine-readable OpenAPI 3.0 specification at `apps/api/openapi.json`.
+
+- **Spec Endpoint**: `GET /api/docs/openapi.json` (or `GET /api/docs`)
+- **CLI Validator**: `node scripts/validate-openapi.js`
+- **Test Suite**: `node --test test/openapi.test.js`
+
+To render locally with Swagger UI or Redoc:
+```bash
+npx @redocly/cli preview-docs openapi.json
+```
+
 ## API Routes
 
 All JSON responses use a consistent envelope:
