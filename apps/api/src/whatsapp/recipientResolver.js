@@ -16,10 +16,15 @@ const createRecipientResolver = ({ prisma, walletService }) => {
     const normalized = raw.toLowerCase();
 
     // 1. Saved contacts — exact alias match.
-    const savedAlias = await prisma.alias.findUnique({
-      where: { userId_alias: { userId: user.id, alias: normalized } },
-    });
-    if (savedAlias) return { destination: savedAlias.target, label: normalized };
+    const savedAlias = prisma.alias?.findUnique
+      ? await prisma.alias.findUnique({
+          where: { userId_alias: { userId: user.id, alias: normalized } },
+        }).catch(() => null)
+      : (prisma.alias?.findFirst ? await prisma.alias.findFirst({
+          where: { userId: user.id, alias: normalized },
+        }).catch(() => null) : null);
+
+    if (savedAlias) return { destination: savedAlias.target || savedAlias.destination, label: normalized };
 
     // 2. Phone number — create or fetch wallet for that phone number.
     if (walletService && looksLikePhoneNumber(raw)) {
