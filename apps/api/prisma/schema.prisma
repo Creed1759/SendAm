@@ -246,12 +246,39 @@ model KycProfile {
   updatedAt         DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  screeningResults SanctionsScreeningResult[]
 
   @@index([status])
   @@index([sanctionsStatus])
   @@index([custodyStatus])
   @@index([status, updatedAt])
   @@index([updatedAt, id])
+}
+
+// Auditable sanctions/PEP screening results per subject (customer, beneficial owner, recipient)
+// Links to KycProfile for traceability and periodic re-screening workflows.
+model SanctionsScreeningResult {
+  id            String   @id @default(cuid())
+  profileId     String
+  subjectId     String   // e.g., "customer:userId", "recipient:phoneNumber"
+  subjectType   String   // "customer" | "beneficial_owner" | "recipient"
+  provider      String   // screening provider name (e.g., "static", "complyadvantage")
+  listVersion   String   // provider list version/date
+  status        String   // "cleared" | "review" | "blocked" | "error"
+  reason        String   // human-readable reason for the status
+  matches       Json     @default("[]") // structured match evidence from provider
+  screenedAt    DateTime @default(now())
+  decisionOwner String?  // who resolved a "review" case (null = pending)
+  resolvedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  profile KycProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, screenedAt])
+  @@index([subjectId, screenedAt])
+  @@index([status, screenedAt])
+  @@index([provider, listVersion])
 }
 
 // Durable inbox for idempotent KYC callback processing. The unique provider
