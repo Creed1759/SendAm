@@ -81,6 +81,8 @@ const executePayment = async ({
       asset: effectiveAsset,
       routeType: effectiveRouteType,
       destinationCountry,
+      recipientPhoneNumber,
+      destination,
       tx,
     });
 

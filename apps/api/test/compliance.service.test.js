@@ -24,20 +24,35 @@ const prismaMock = {
   transaction: {
     findMany: async () => [],
   },
+  sanctionsScreeningResult: {
+    create: async (input) => ({ id: 'screening_1', ...input.data }),
+  },
+  auditLog: {
+    create: async () => ({ id: 'audit_1' }),
+  },
 };
 
 injectMock('common/prisma', () => prismaMock);
-injectMock('config/env', () => ({ compliance: { provider: 'smileid' } }));
+injectMock('config/env', () => ({ 
+  compliance: { 
+    provider: 'smileid',
+    screeningProvider: 'static',  // Use static provider for tests
+    screeningMaxAgeMs: 24 * 60 * 60 * 1000,
+    screeningMaxStalenessMs: 72 * 60 * 60 * 1000,
+  } 
+}));
 
-const { getOrCreateKycProfile, enforceTransactionPolicy, calculateRiskScore } = require('../src/compliance/compliance.service');
+const { getOrCreateKycProfile, enforceTransactionPolicy, calculateRiskScore, screenSanctions } = require('../src/compliance/compliance.service');
 
-const user = { id: 'user_1', phoneNumber: '+1234567890', kycTier: 1 };
+const user = { id: 'user_1', phoneNumber: '+1234567890', kycTier: 1, firstName: 'Test', lastName: 'User' };
 
 const resetPrisma = () => {
   prismaMock.kycProfile.findUnique = mockFindUnique;
   prismaMock.kycProfile.create = mockCreate;
   prismaMock.kycProfile.update = mockUpdate;
   prismaMock.transaction.findMany = async () => [];
+  prismaMock.sanctionsScreeningResult.create = async (input) => ({ id: 'screening_1', ...input.data });
+  prismaMock.auditLog.create = async () => ({ id: 'audit_1' });
 };
 
 test('getOrCreateKycProfile creates a profile when none exists', async () => {
@@ -70,7 +85,7 @@ test('enforceTransactionPolicy rejects blocked sanctions destination', async () 
   prismaMock.kycProfile.findUnique = async () => ({ id: 'profile_3', userId: user.id, provider: 'smileid', tier: 1, status: 'approved', sanctionsStatus: 'not_screened', custodyStatus: 'not_reviewed' });
   await assert.rejects(
     () => enforceTransactionPolicy({ user, amount: '100', routeType: 'domestic', destinationCountry: 'IR' }),
-    { message: 'Destination country is subject to sanctions screening and cannot be served.' },
+    { message: 'Country IR is on the static blocked list.' },
   );
 });
 
