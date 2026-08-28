@@ -4,6 +4,7 @@ const { writeAuditLog } = require('../common/audit.service');
 const prisma = require('../common/prisma');
 const { withIdAliases } = require('../common/records');
 const { parseLimit, cursorQuery, MAX_EXPORT_ROWS } = require('../utils/cursorPagination');
+const { listStuckPayments, operatorResolveStuckPayment, listLedgerDiscrepancies } = require('../payment/payment.reconciler');
 
 // Build an inclusive [gte, lte] range from `from`/`to` query params. Tolerant of
 // bare dates ("2024-01-01") and full ISO timestamps; invalid input is ignored
@@ -439,12 +440,46 @@ const refundTransaction = async (req, res, next) => {
     next(error);
   }
 };
+const getStuckPayments = async (req, res, next) => {
+  try {
+    const staleAgeMs = req.query.staleAgeMs ? Number(req.query.staleAgeMs) : undefined;
+    const maxTransactions = req.query.limit ? parseLimit(req.query.limit) : undefined;
+    const payments = await listStuckPayments({ prisma, staleAgeMs, maxTransactions });
+    return sendSuccess(res, payments);
+  } catch (error) {
+    next(error);
+  }
+};
+
+const actOnStuckPayment = (action) => async (req, res, next) => {
+  try {
+    const transaction = await operatorResolveStuckPayment({
+      prisma,
+      transactionId: req.params.id,
+      action,
+      reason: req.body?.reason,
+      adminId: req.admin?.id || 'system',
+    });
+    return sendSuccess(res, { transaction }, 'Stuck payment updated');
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getLedgerDiscrepancies = async (req, res, next) => {
+  try {
+    const report = await listLedgerDiscrepancies({ prisma, maxEntries: req.query.limit ? parseLimit(req.query.limit) : undefined });
+    return sendSuccess(res, report);
+  } catch (error) {
+    next(error);
+  }
+};
 
 const verifyAuditLogs = async (req, res, next) => {
   try {
     const { verifyAuditLogIntegrity } = require('../common/audit.service');
     const result = await verifyAuditLogIntegrity();
-    
+
     await writeAuditLog({
       actorType: 'administrator',
       actorId: req.admin.id,
@@ -463,7 +498,6 @@ const verifyAuditLogs = async (req, res, next) => {
     next(error);
   }
 };
-
 module.exports = {
   login,
   acceptInvite,
@@ -484,5 +518,10 @@ module.exports = {
   exportAuditLogs,
   getSystemHealth,
   refundTransaction,
+  getStuckPayments,
+  retryStuckPayment: actOnStuckPayment('retry'),
+  markStuckPaymentResolved: actOnStuckPayment('mark_resolved'),
+  escalateStuckPayment: actOnStuckPayment('escalate'),
+  getLedgerDiscrepancies,
   verifyAuditLogs,
 };

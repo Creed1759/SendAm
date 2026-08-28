@@ -136,7 +136,8 @@ model Transaction {
   updatedAt             DateTime @updatedAt
 
   user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  quote Quote? @relation(fields: [quoteId], references: [id])
+  quote         Quote?         @relation(fields: [quoteId], references: [id])
+  ledgerEntries JournalEntry[]
 
   @@index([userId, createdAt])
   @@index([status])
@@ -146,6 +147,53 @@ model Transaction {
   @@index([createdAt, id])
   @@index([txHash])
   @@index([providerTransactionId])
+}
+
+model LedgerAccount {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  type      String
+  asset     String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  postings LedgerPosting[]
+
+  @@index([type, asset])
+  @@index([userId])
+}
+
+model JournalEntry {
+  id            String   @id @default(cuid())
+  eventType     String
+  transactionId String?
+  externalRef   String?
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  transaction Transaction?    @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  postings    LedgerPosting[]
+
+  @@index([eventType, createdAt])
+  @@index([transactionId])
+  @@index([externalRef])
+}
+
+model LedgerPosting {
+  id             String   @id @default(cuid())
+  journalEntryId String
+  accountId      String
+  asset           String
+  /// Signed canonical decimal string. The sum of postings per journal entry and asset must be zero.
+  amount          String
+  createdAt       DateTime @default(now())
+
+  journalEntry JournalEntry  @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  account      LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([journalEntryId])
+  @@index([accountId])
+  @@index([asset, createdAt])
 }
 
 model Contact {
@@ -392,9 +440,13 @@ model Quote {
   targetAmount   String?
   /// Decimal string exchange rate; do not use Float for quote math.
   rate           String?
+  sourceTimestamp DateTime?
+  spread         String   @default("0")
+  feePolicyVersion String @default("standard-v1")
   /// Canonical decimal string in sourceCurrency precision.
   fee            String?
   provider       String?
+  providerResponse Json?
   route          String?
   /// Lifecycle state of the quote. `active` quotes can be submitted; `consumed`
   /// quotes have already settled a payment; `expired`/`replaced`/`orphaned`
