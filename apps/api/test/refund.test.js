@@ -36,31 +36,46 @@ const mockRecipientWallet = {
   encryptedSecretKey: 'encrypted_secret_key',
 };
 
+const createdTransactions = new Map();
+
 // Database queries/mocks
 let mockCreatedRefund;
 const prismaMock = {
   transaction: {
     findUnique: async ({ where }) => {
       if (where.id === 'tx_original_123') return mockOriginalTx;
-      return null;
+      return createdTransactions.get(where.id) || null;
     },
     findMany: async ({ where }) => {
-      // Find all successful refund transactions
+      const list = Array.from(createdTransactions.values());
       if (where.type === 'refund' && where.status === 'success') {
-        return []; // starts empty
+        return list.filter((tx) => tx.type === 'refund' && tx.status === 'success');
       }
-      return [];
+      return list;
     },
     create: async ({ data }) => {
+<<<<<<< HEAD
       mockCreatedRefund = { id: 'refund_tx_new', status: 'processing', ...data };
       return mockCreatedRefund;
+=======
+      const tx = { id: 'refund_tx_new', status: 'processing', ...data };
+      createdTransactions.set(tx.id, tx);
+      return { ...tx };
+>>>>>>> upstream/main
     },
     update: async ({ where, data }) => {
       if (where.id === 'tx_original_123') {
         mockOriginalTx.metadata = data.metadata;
         return mockOriginalTx;
       }
+<<<<<<< HEAD
       return { ...(where.id === 'refund_tx_new' ? mockCreatedRefund : {}), id: where.id, ...data };
+=======
+      const existing = createdTransactions.get(where.id) || { id: where.id };
+      const updated = { ...existing, ...data, metadata: { ...(existing.metadata || {}), ...(data.metadata || {}) } };
+      createdTransactions.set(where.id, updated);
+      return { ...updated };
+>>>>>>> upstream/main
     },
   },
   wallet: {

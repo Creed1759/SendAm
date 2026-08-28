@@ -2,6 +2,7 @@ const axios = require('axios');
 const config = require('../config/env');
 const { withIdAlias } = require('../common/records');
 const { increment: incrementMetric } = require('../observability/metrics');
+const { outboundHeaders } = require('../observability/context');
 const { assertValidAmount, percentage, convert, getAssetRule, subtract, decimalToRatio, compare } = require('../utils/money');
 
 const normalizeCurrency = (currency) => String(currency || '').trim().toUpperCase();
@@ -113,6 +114,7 @@ const fetchExchangeRateQuote = async ({ sourceCurrency = 'NGN', targetCurrency =
     return null;
   }
 
+<<<<<<< HEAD
   const provider = 'exchangerate-api';
   const key = cacheKey(sourceCurrency, targetCurrency);
   const fresh = cachedRate(key, Number(config.pricing?.cacheMaxAgeMs ?? 60000));
@@ -159,6 +161,17 @@ const getExchangeRate = async (args) => {
 const resetPricingPolicyState = () => {
   providerState.clear();
   rateCache.clear();
+=======
+  const response = await axios.get(`https://v6.exchangerate-api.com/v6/${config.pricing?.exchangeRateApiKey}/pair/${sourceCurrency}/${targetCurrency}`, {
+    timeout: 15000,
+    responseType: 'text',
+    headers: outboundHeaders(),
+  });
+  const rawText = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+  const match = rawText.match(/"conversion_rate"\s*:\s*([0-9.eE+-]+)/);
+  if (!match || !match[1]) return null;
+  return decimalToRatio(match[1]).decimal;
+>>>>>>> upstream/main
 };
 
 // Quote lifecycle states. All persisted quotes start as `active`. A quote moves
