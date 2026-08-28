@@ -87,6 +87,9 @@ const executePayment = async ({
       destinationCountry,
       tx,
     });
+    if (!compliance.policySnapshot) {
+      throw new Error('Compliance policy snapshot is required.');
+    }
 
     // Idempotency short-circuit: an earlier attempt with this key already
     // reserved a transaction. Return it (and its quote) without creating
@@ -141,10 +144,20 @@ const executePayment = async ({
           quoteId: quote.id,
           idempotencyKey,
           status: 'processing',
+          fiatCurrency: compliance.policySnapshot.referenceCurrency,
+          fiatAmount: compliance.policySnapshot.convertedAmount,
           metadata: {
             fee: calculateFee(normalizedAmount, effectiveAsset),
             userHiddenRail: true,
             riskScore: compliance.riskScore,
+            policy: {
+              version: compliance.policySnapshot.policyVersion,
+              rate: compliance.policySnapshot.rate,
+              source: compliance.policySnapshot.source,
+              fetchedAt: compliance.policySnapshot.fetchedAt,
+              convertedAmount: compliance.policySnapshot.convertedAmount,
+              referenceCurrency: compliance.policySnapshot.referenceCurrency,
+            },
             ...memoMetadata,
           },
         },

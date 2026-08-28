@@ -165,6 +165,7 @@ module.exports = {
   pricing: {
     coinGeckoBaseUrl: process.env.COINGECKO_BASE_URL || 'https://api.coingecko.com/api/v3',
     coinGeckoApiKey: process.env.COINGECKO_API_KEY,
+    coinGeckoTimeoutMs: Number(process.env.COINGECKO_TIMEOUT_MS || 10000),
     exchangeRateApiKey: process.env.EXCHANGERATE_API_KEY,
     supportedFiatCurrencies: (process.env.SUPPORTED_FIAT_CURRENCIES || 'NGN,USD,EUR,GBP')
       .split(',')
@@ -190,6 +191,25 @@ module.exports = {
       secretKey: process.env.DOJAH_SECRET_KEY,
     },
     pinPepper: process.env.PIN_PEPPER,
+    // Tier single/daily limits are denominated in policyCurrency (NGN).
+    policyCurrency: (process.env.POLICY_CURRENCY || 'NGN').trim().toUpperCase(),
+    policyVersion: process.env.POLICY_VERSION || '1',
+    policyFxMaxAgeMs: Number(process.env.POLICY_FX_MAX_AGE_MS || 300000),
+    tierLimits: {
+      0: { daily: '0.00', single: '0.00' },
+      1: {
+        daily: process.env.TIER_1_DAILY_LIMIT || '50000.00',
+        single: process.env.TIER_1_SINGLE_LIMIT || '20000.00',
+      },
+      2: {
+        daily: process.env.TIER_2_DAILY_LIMIT || '500000.00',
+        single: process.env.TIER_2_SINGLE_LIMIT || '200000.00',
+      },
+      3: {
+        daily: process.env.TIER_3_DAILY_LIMIT || '5000000.00',
+        single: process.env.TIER_3_SINGLE_LIMIT || '1000000.00',
+      },
+    },
   },
   voice: {
     provider: process.env.VOICE_PROVIDER || 'deepgram',

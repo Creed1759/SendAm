@@ -274,14 +274,19 @@ const reconcileQuotes = async ({ prismaClient = prisma, now = new Date(), orphan
   return { expired: expired.count, orphaned: orphaned.count };
 };
 
+const { getPolicyConversionSnapshot, PolicyError, POLICY_ERROR_CODES } = require('./policyRate');
+
 module.exports = {
   createQuote,
   getExchangeRate,
+  getPolicyConversionSnapshot,
   assertConfiguredCurrency,
   validateQuoteForExecution,
   requote,
   reconcileQuotes,
   QuoteError,
+  PolicyError,
   QUOTE_STATUS,
   QUOTE_ERROR_CODES,
+  POLICY_ERROR_CODES,
 };
