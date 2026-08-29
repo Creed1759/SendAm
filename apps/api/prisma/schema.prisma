@@ -296,6 +296,22 @@ model KycWebhookEvent {
   @@index([receivedAt])
 }
 
+// Maker-checker approval record for high-impact KYC overrides.
+model KycApproval {
+  id              String   @id @default(cuid())
+  profileId       String
+  proposedChanges Json
+  requestedBy     String
+  status          String   @default("pending") // pending | approved | rejected | superseded
+  approvedBy      String?
+  decidedAt       DateTime?
+  createdAt       DateTime @default(now())
+
+  @@index([profileId])
+  @@index([status])
+  @@index([requestedBy])
+}
+
 model VoiceCommand {
   id                String   @id @default(cuid())
   userId            String?
