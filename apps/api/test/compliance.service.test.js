@@ -25,6 +25,12 @@ const prismaMock = {
   transaction: {
     findMany: async () => [],
   },
+  sanctionsScreeningResult: {
+    create: async (input) => ({ id: 'screening_1', ...input.data }),
+  },
+  auditLog: {
+    create: async () => ({ id: 'audit_1' }),
+  },
 };
 
 injectMock('common/prisma', () => prismaMock);
@@ -79,6 +85,8 @@ const resetPrisma = () => {
   prismaMock.kycProfile.create = mockCreate;
   prismaMock.kycProfile.update = mockUpdate;
   prismaMock.transaction.findMany = async () => [];
+  prismaMock.sanctionsScreeningResult.create = async (input) => ({ id: 'screening_1', ...input.data });
+  prismaMock.auditLog.create = async () => ({ id: 'audit_1' });
 };
 
 const usdcRate = async () => ({ rate: '1550.00', fetchedAt: now });
@@ -130,7 +138,7 @@ test('enforceTransactionPolicy rejects blocked sanctions destination', async () 
   prismaMock.kycProfile.findUnique = async () => ({ id: 'profile_3', userId: user.id, provider: 'smileid', tier: 1, status: 'approved', sanctionsStatus: 'not_screened', custodyStatus: 'not_reviewed' });
   await assert.rejects(
     () => enforceTransactionPolicy({ user, amount: '100', routeType: 'domestic', destinationCountry: 'IR' }),
-    { message: 'Destination country is subject to sanctions screening and cannot be served.' },
+    { message: 'Country IR is on the static blocked list.' },
   );
 });
 

@@ -167,6 +167,16 @@ module.exports = {
     coinGeckoApiKey: process.env.COINGECKO_API_KEY,
     coinGeckoTimeoutMs: Number(process.env.COINGECKO_TIMEOUT_MS || 10000),
     exchangeRateApiKey: process.env.EXCHANGERATE_API_KEY,
+    timeoutMs: Number(process.env.PRICING_PROVIDER_TIMEOUT_MS || 3000),
+    maxRetries: Number(process.env.PRICING_PROVIDER_MAX_RETRIES || 2),
+    circuitThreshold: Number(process.env.PRICING_PROVIDER_CIRCUIT_THRESHOLD || 3),
+    circuitCooldownMs: Number(process.env.PRICING_PROVIDER_CIRCUIT_COOLDOWN_MS || 30000),
+    cacheMaxAgeMs: Number(process.env.PRICING_RATE_CACHE_MAX_AGE_MS || 60000),
+    staleCacheMaxAgeMs: Number(process.env.PRICING_STALE_RATE_CACHE_MAX_AGE_MS || 300000),
+    maxSourceAgeMs: Number(process.env.PRICING_PROVIDER_MAX_SOURCE_AGE_MS || 24 * 60 * 60 * 1000),
+    maxRate: process.env.PRICING_PROVIDER_MAX_RATE || '1000000000',
+    spreadBasisPoints: Number(process.env.PRICING_SPREAD_BASIS_POINTS || 0),
+    feePolicyVersion: process.env.PRICING_FEE_POLICY_VERSION || 'standard-v1',
     supportedFiatCurrencies: (process.env.SUPPORTED_FIAT_CURRENCIES || 'NGN,USD,EUR,GBP')
       .split(',')
       .map((currency) => currency.trim().toUpperCase())

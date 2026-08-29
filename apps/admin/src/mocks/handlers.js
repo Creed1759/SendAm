@@ -10,6 +10,18 @@ export const handlers = [
     return HttpResponse.json({ message: 'Invalid credentials' }, { status: 401 });
   }),
 
+  // Current operator identity + permissions (server-authoritative RBAC).
+  http.get('*/api/admin/me', () => {
+    return HttpResponse.json({
+      data: { id: 'admin-1', email: 'operator@example.com', name: 'Operator', role: 'administrator', permissions: ['*'], mustChangePassword: false },
+    });
+  }),
+
+  // Self-serve password rotation; revokes other sessions server-side.
+  http.post('*/api/admin/password', () => {
+    return HttpResponse.json({ success: true, message: 'Password changed' });
+  }),
+
   // Users
   http.get('*/api/admin/users', ({ request }) => {
     const url = new URL(request.url);
