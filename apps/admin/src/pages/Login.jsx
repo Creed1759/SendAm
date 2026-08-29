@@ -15,9 +15,16 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      const token = await adminLogin(email, password);
-      if (token) {
-        navigate('/');
+      const result = await adminLogin(email, password);
+      if (result?.token) {
+        // A bootstrap/temporary credential only authenticates the self-serve
+        // password rotation: force the operator to pick a private password
+        // before any admin work.
+        if (result.mustChangePassword) {
+          navigate('/set-password');
+        } else {
+          navigate('/');
+        }
       } else {
         setError('Login failed. Please try again.');
       }

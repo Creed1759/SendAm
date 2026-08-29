@@ -1,5 +1,5 @@
 const { sendSuccess, sendError, sendCursorPaginated } = require('../utils/response');
-const { authenticate, createInvitation, acceptInvitation, revokeSessions, hashPassword } = require('../services/adminAuth.service');
+const { authenticate, createInvitation, acceptInvitation, revokeSessions, hashPassword, changeOwnPassword } = require('../services/adminAuth.service');
 const { writeAuditLog } = require('../common/audit.service');
 const prisma = require('../common/prisma');
 const { withIdAliases } = require('../common/records');
@@ -110,7 +110,7 @@ const login = async (req, res, next) => {
       return sendError(res, 'Invalid credentials', 401);
     }
     await writeAuditLog({ actorType: 'administrator', actorId: result.admin.id, action: 'admin.login.succeeded', entityType: 'AdminSession', entityId: result.session.id, req });
-    return sendSuccess(res, { token: result.token, administrator: { id: result.admin.id, email: result.admin.email, name: result.admin.name, role: result.admin.role.name } }, 'Login successful');
+    return sendSuccess(res, { token: result.token, mustChangePassword: result.mustChangePassword === true, administrator: { id: result.admin.id, email: result.admin.email, name: result.admin.name, role: result.admin.role.name } }, 'Login successful');
   } catch (error) {
     next(error);
   }
@@ -186,6 +186,40 @@ const logout = async (req, res, next) => {
     await prisma.adminSession.update({ where: { id: req.admin.sessionId }, data: { revokedAt: new Date() } });
     await writeAuditLog({ actorType: 'administrator', actorId: req.admin.id, action: 'admin.session.revoked', entityType: 'AdminSession', entityId: req.admin.sessionId, req });
     return sendSuccess(res, null, 'Logged out');
+  } catch (error) { return next(error); }
+};
+
+// Allows an operator to rotate to a private password (or change it later), the
+// required first step after a bootstrap/temporary credential. All other active
+// sessions are revoked so a leaked shared token cannot continue to act, and the
+// change itself is attributed to the operator.
+const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    const admin = await changeOwnPassword({
+      adminId: req.admin.id,
+      currentPassword,
+      newPassword,
+      sessionId: req.admin.sessionId,
+    });
+    await writeAuditLog({ actorType: 'administrator', actorId: admin.id, action: 'admin.password.changed', entityType: 'AdminUser', entityId: admin.id, req });
+    return sendSuccess(res, null, 'Password changed');
+  } catch (error) {
+    if (error.statusCode) return sendError(res, error.message, error.statusCode, { code: 'PASSWORD_CHANGE_FAILED' });
+    return next(error);
+  }
+};
+
+const me = async (req, res, next) => {
+  try {
+    return sendSuccess(res, {
+      id: req.admin.id,
+      email: req.admin.email,
+      name: req.admin.name,
+      role: req.admin.role,
+      permissions: req.admin.permissions,
+      mustChangePassword: req.admin.mustChangePassword === true,
+    });
   } catch (error) { return next(error); }
 };
 
@@ -502,6 +536,8 @@ module.exports = {
   login,
   acceptInvite,
   logout,
+  changePassword,
+  me,
   listAdministrators,
   inviteAdministrator,
   updateAdministratorRole,

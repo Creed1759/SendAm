@@ -348,6 +348,12 @@ model AdminUser {
   passwordHash      String
   roleId            String
   disabledAt        DateTime?
+  // Set when an administrator was provisioned from the legacy shared
+  // ADMIN_PASSWORD bootstrap (or any other temporary credential). The account
+  // is blocked from admin work until the operator rotates to a private password
+  // via POST /api/admin/password. This is what makes "shared credentials
+  // cannot authenticate after migration" hold for the bootstrap admin too.
+  mustChangePassword Boolean   @default(false)
   passwordChangedAt DateTime   @default(now())
   lastLoginAt       DateTime?
   createdAt         DateTime   @default(now())
