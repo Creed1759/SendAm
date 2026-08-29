@@ -3,6 +3,8 @@ const rateLimit = require('express-rate-limit');
 const router = express.Router();
 const adminController = require('../controllers/admin.controller');
 const privacyController = require('../compliance/privacy.controller');
+const reconciliationController = require('../payment/reconciliation.controller');
+const supportController = require('../support/support.controller');
 const requireAdmin = require('../middlewares/requireAdmin');
 
 // Tighter limiter on the credential endpoint to slow password brute-forcing,
@@ -55,5 +57,18 @@ router.patch('/administrators/:id/role', requireAdmin('*'), adminController.upda
 router.post('/administrators/:id/disable', requireAdmin('*'), adminController.disableAdministrator);
 router.post('/administrators/:id/reset-credential', requireAdmin('*'), adminController.resetCredential);
 router.post('/administrators/:id/revoke-sessions', requireAdmin('*'), adminController.revokeAdministratorSessions);
+
+// Reconciliation routes - deterministic transaction reconciliation
+router.post('/reconciliation/trigger', requireAdmin('operations.write'), reconciliationController.triggerReconciliation);
+router.get('/reconciliation/checkpoints', requireAdmin('operations.read'), reconciliationController.listReconciliationCheckpoints);
+router.patch('/reconciliation/checkpoints/:checkpointId/resolve', requireAdmin('operations.write'), reconciliationController.resolveReconciliationMismatch);
+router.get('/ledger/discrepancies', requireAdmin('operations.read'), reconciliationController.getLedgerDiscrepancies);
+
+// Support case routes - structured support workflow
+router.post('/support/cases', requireAdmin('operations.write'), supportController.createSupportCase);
+router.get('/support/cases', requireAdmin('operations.read'), supportController.listSupportCases);
+router.get('/support/cases/:caseId', requireAdmin('operations.read'), supportController.getSupportCase);
+router.post('/support/cases/:caseId/comments', requireAdmin('operations.write'), supportController.addCaseComment);
+router.patch('/support/cases/:caseId', requireAdmin('operations.write'), supportController.updateSupportCase);
 
 module.exports = router;
