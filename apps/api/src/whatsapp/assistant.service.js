@@ -1,19 +1,13 @@
-let Prisma;
-try {
-  ({ Prisma } = require('@prisma/client'));
-} catch {
-  Prisma = { DbNull: null };
-}
+const { Prisma } = require('@prisma/client');
 const crypto = require('crypto');
-const { createQuote } = require('../pricing/pricing.service');
+const walletService = require('../wallet/wallet.service');
+const { validateAddress } = require('../wallet/stellar.adapter');
+const { executePayment } = require('../payment/payment.orchestrator');
 const { verifyPin } = require('../compliance/pin.service');
 const { sendTextMessage } = require('../services/whatsapp.service');
 const { claimPendingSend } = require('./pendingClaim');
 const { createRecipientResolver } = require('./recipientResolver');
-<<<<<<< HEAD
-=======
 const defaultPrisma = require('../common/prisma');
->>>>>>> upstream/main
 const { canonicalizePhoneNumber } = require('../utils/validators');
 const { parseConsentCommand, updateUserConsent, isMessageAllowed } = require('../compliance/consent.service');
 const { t, SUPPORTED_LOCALES } = require('../i18n/messages');
@@ -21,19 +15,8 @@ const { formatDateByLocale, formatAmountByLocale } = require('../i18n/formatters
 
 const PENDING_SEND_TTL_MS = 10 * 60 * 1000;
 const NATIVE_ASSET = 'XLM';
-const getPrisma = () => require('../common/prisma');
-const getWalletService = () => require('../wallet/wallet.service');
-const executePayment = (args) => require('../payment/payment.orchestrator').executePayment(args);
-const stellarAdapter = () => require('../wallet/stellar.adapter');
 
-const formatExpiry = (expiresAt) => new Date(expiresAt).toISOString();
-
-<<<<<<< HEAD
-const resolveUser = async (phoneNumber, whatsappName) => {
-  const prisma = getPrisma();
-=======
 const resolveUser = async (phoneNumber, whatsappName, db = defaultPrisma) => {
->>>>>>> upstream/main
   const canonicalPhone = canonicalizePhoneNumber(phoneNumber);
   const now = new Date();
   let user = await db.user.findUnique({ where: { phoneNumber: canonicalPhone } });
@@ -86,22 +69,12 @@ const parsePaymentIntent = (text) => {
   };
 };
 
-<<<<<<< HEAD
-// Precedence: saved contacts → phone numbers → raw address passthrough. See
-// recipientResolver.js; the address-validity check in requestConfirmation
-// still applies to whatever comes back.
-const requestConfirmation = async ({ phoneNumber, user, intent, notify }) => {
-  const prisma = getPrisma();
-  const walletService = getWalletService();
-  const resolveRecipient = createRecipientResolver({ prisma, walletService });
-=======
 const requestConfirmation = async ({ phoneNumber, user, intent, notify, db = defaultPrisma }) => {
   const resolveRecipient = createRecipientResolver({ prisma: db, walletService });
->>>>>>> upstream/main
   const recipient = await resolveRecipient(user, intent.recipient);
   const locale = user.locale || 'en';
 
-  if (!stellarAdapter().validateAddress(String(recipient.destination || '').trim())) {
+  if (!validateAddress(String(recipient.destination || '').trim())) {
     await notify(
       phoneNumber,
       t('invalid_destination', { label: recipient.label }, locale)
@@ -143,14 +116,6 @@ const requestConfirmation = async ({ phoneNumber, user, intent, notify, db = def
 
   const addressStr = String(recipient.destination).trim();
   const fingerprint = `SDA-FP-${crypto.createHash('sha256').update(addressStr).digest('hex').slice(0, 8).toUpperCase()}`;
-  const quote = await createQuote({
-    userId: user.id,
-    sourceCurrency: intent.asset,
-    targetCurrency: intent.asset,
-    sourceAmount: intent.amount,
-    route: 'stellar',
-    provider: 'stellar',
-  });
 
   const now = new Date();
   const expiresAt = new Date(now.getTime() + PENDING_SEND_TTL_MS);
@@ -163,8 +128,6 @@ const requestConfirmation = async ({ phoneNumber, user, intent, notify, db = def
     step,
     amount: intent.amount,
     asset: intent.asset,
-    quoteId: quote.id,
-    quoteExpiresAt: quote.expiresAt,
     destination: recipient.destination,
     alias: recipient.label,
     memo: intent.memo,
@@ -186,13 +149,6 @@ const requestConfirmation = async ({ phoneNumber, user, intent, notify, db = def
     const warnMsg = t('high_risk_warning', { fingerprint }, locale);
     await notify(phoneNumber, warnMsg);
   } else {
-<<<<<<< HEAD
-    let confirmMsg = `Please confirm this payment:\nAmount: ${intent.amount} ${intent.asset}\nTo: ${recipient.label}`;
-    if (intent.memo) {
-      confirmMsg += `\nMemo (${intent.memoType || 'text'}): ${intent.memo}`;
-    }
-    confirmMsg += `\nQuote expires: ${formatExpiry(quote.expiresAt)}\nReply with your PIN to send, or "no" to cancel.`;
-=======
     const formattedAmount = formatAmountByLocale(intent.amount, intent.asset, locale);
     const memoLine = intent.memo ? `\nMemo (${intent.memoType || 'text'}): ${intent.memo}` : '';
     const confirmMsg = t('payment_confirm', {
@@ -201,17 +157,11 @@ const requestConfirmation = async ({ phoneNumber, user, intent, notify, db = def
       label: recipient.label,
       memoLine,
     }, locale);
->>>>>>> upstream/main
     await notify(phoneNumber, confirmMsg);
   }
 };
 
-<<<<<<< HEAD
-const handlePendingPin = async ({ phoneNumber, user, text, notify }) => {
-  const prisma = getPrisma();
-=======
 const handlePendingPin = async ({ phoneNumber, user, text, notify, db = defaultPrisma }) => {
->>>>>>> upstream/main
   if (!user.pendingSend?.destination) return false;
 
   const locale = user.locale || 'en';
@@ -234,24 +184,12 @@ const handlePendingPin = async ({ phoneNumber, user, text, notify, db = defaultP
     return true;
   }
 
-<<<<<<< HEAD
-  if (user.pendingSend.quoteExpiresAt && new Date(user.pendingSend.quoteExpiresAt).getTime() <= Date.now()) {
-    await prisma.user.update({ where: { id: user.id }, data: { pendingSend: Prisma.DbNull } });
-    await notify(phoneNumber, 'That quote expired. Please start again to get a fresh rate.');
-    return true;
-  }
-
-  // Intermediate confirmation step for high risk
-  if (user.pendingSend.isHighRisk && !user.pendingSend.highRiskConfirmed) {
-    if (lowered === 'yes') {
-=======
   const isHighRiskStep = pendingState.step === 'AWAITING_HIGH_RISK_CONFIRMATION' || (pendingState.isHighRisk && !pendingState.highRiskConfirmed);
 
   if (isHighRiskStep) {
     if (lowered === 'yes' || lowered === 'oui' || lowered === 'si') {
       const now = new Date();
       const newExpiresAt = new Date(now.getTime() + PENDING_SEND_TTL_MS);
->>>>>>> upstream/main
       const updatedPending = {
         ...pendingState,
         step: 'AWAITING_PIN',
@@ -264,13 +202,6 @@ const handlePendingPin = async ({ phoneNumber, user, text, notify, db = defaultP
         data: { pendingSend: updatedPending },
       });
 
-<<<<<<< HEAD
-      let confirmMsg = `Recipient confirmed.\nPlease confirm this payment:\nAmount: ${updatedPending.amount} ${updatedPending.asset}\nTo: [Recipient ${updatedPending.fingerprint}]\n`;
-      if (updatedPending.memo) {
-        confirmMsg += `Memo (${updatedPending.memoType || 'text'}): ${updatedPending.memo}\n`;
-      }
-      confirmMsg += `Quote expires: ${formatExpiry(updatedPending.quoteExpiresAt)}\nReply with your PIN to send, or "no" to cancel.`;
-=======
       const memoLine = updatedPending.memo ? `Memo (${updatedPending.memoType || 'text'}): ${updatedPending.memo}\n` : '';
       const confirmMsg = t('payment_confirm_high_risk', {
         amount: updatedPending.amount,
@@ -278,7 +209,6 @@ const handlePendingPin = async ({ phoneNumber, user, text, notify, db = defaultP
         fingerprint: updatedPending.fingerprint,
         memoLine,
       }, locale);
->>>>>>> upstream/main
       await notify(phoneNumber, confirmMsg);
       return true;
     } else {
@@ -304,7 +234,6 @@ const handlePendingPin = async ({ phoneNumber, user, text, notify, db = defaultP
     destination: pending.destination,
     amount: pending.amount,
     asset: pending.asset,
-    quoteId: pending.quoteId,
     memo: pending.memo,
     memoType: pending.memoType,
     routeType: pending.routeType,
@@ -326,23 +255,12 @@ const handlePendingPin = async ({ phoneNumber, user, text, notify, db = defaultP
   return true;
 };
 
-<<<<<<< HEAD
-// `notify` defaults to the real WhatsApp send so the webhook path (the only
-// caller before the sim endpoints existed) is unaffected. The sim controller
-// passes its own `notify` to capture replies inline instead of calling Meta —
-// see apps/api/src/controllers/sim.controller.js.
-const processMessage = async (phoneNumber, whatsappName, text, { notify = sendTextMessage } = {}) => {
-  const prisma = getPrisma();
-  const user = await resolveUser(phoneNumber, whatsappName);
-  if (await handlePendingPin({ phoneNumber, user, text, notify })) return;
-=======
 const processMessage = async (phoneNumber, whatsappName, text, options = {}) => {
   const notify = typeof options === 'function' ? options : (options.notify || sendTextMessage);
   const db = options.prisma || defaultPrisma;
 
   const user = await resolveUser(phoneNumber, whatsappName, db);
   const locale = user.locale || 'en';
->>>>>>> upstream/main
 
   const normalized = String(text || '').trim().toLowerCase();
 
@@ -388,7 +306,6 @@ const processMessage = async (phoneNumber, whatsappName, text, options = {}) => 
   }
 
   if (normalized.includes('balance')) {
-    const walletService = getWalletService();
     await walletService.ensureWalletsForUser({ user });
     const balances = await walletService.balancesForUser({ userId: user.id });
     const lines = balances.flatMap((b) => {
@@ -401,7 +318,6 @@ const processMessage = async (phoneNumber, whatsappName, text, options = {}) => 
   }
 
   if (normalized.includes('receive')) {
-    const walletService = getWalletService();
     const wallets = await walletService.ensureWalletsForUser({ user });
     const lines = wallets.map((w) => `${w.chain}: ${w.publicKey}`);
     const headerMsg = t('receive_header', { lines: lines.join('\n') }, locale);

@@ -17,6 +17,12 @@ router.post('/login', loginLimiter, adminController.login);
 router.post('/invitations/accept', loginLimiter, adminController.acceptInvite);
 
 router.post('/logout', requireAdmin('admin.read'), adminController.logout);
+// Identity of the authenticated operator. Needs an authenticated session but
+// must be reachable even when a password change is pending.
+router.get('/me', requireAdmin.authenticate, adminController.me);
+// Self-serve password rotation. Explicitly exempt from the PASSWORD_CHANGE_REQUIRED
+// gate so a bootstrap/temporary credential can be replaced with a private one.
+router.post('/password', requireAdmin.permission('*', { allowPasswordChangePending: true }), adminController.changePassword);
 router.get('/stats', requireAdmin('admin.read'), adminController.getStats);
 router.get('/users', requireAdmin('admin.read'), adminController.getUsers);
 router.get('/wallets', requireAdmin('admin.read'), adminController.getWallets);
