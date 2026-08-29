@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import KycReview from './KycReview';
@@ -18,13 +18,16 @@ describe('KycReview Component', () => {
       expect(screen.getByRole('table')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Pending')).toBeInTheDocument();
+    // The status badge renders the lowercase API status; the capitalize
+    // styling is purely visual, so match case-insensitively within the table.
+    const table = screen.getByRole('table');
+    expect(within(table).getByText(/pending/i)).toBeInTheDocument();
     const approveButton = screen.getByRole('button', { name: /approve/i });
     
     await userEvent.click(approveButton);
 
     await waitFor(() => {
-      expect(screen.getByText('Approved')).toBeInTheDocument();
+      expect(within(table).getByText(/approved/i)).toBeInTheDocument();
     });
     
     expect(screen.queryByRole('button', { name: /approve/i })).not.toBeInTheDocument();
@@ -41,11 +44,12 @@ describe('KycReview Component', () => {
       expect(screen.getByRole('table')).toBeInTheDocument();
     });
 
+    const table = screen.getByRole('table');
     const rejectButton = screen.getByRole('button', { name: /reject/i });
     await userEvent.click(rejectButton);
 
     await waitFor(() => {
-      expect(screen.getByText('Rejected')).toBeInTheDocument();
+      expect(within(table).getByText(/rejected/i)).toBeInTheDocument();
     });
   });
 
@@ -73,7 +77,8 @@ describe('KycReview Component', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('KYC failed validation');
     });
     
-    // Status should remain Pending
-    expect(screen.getByText('Pending')).toBeInTheDocument();
+    // Status should remain pending
+    const table = screen.getByRole('table');
+    expect(within(table).getByText(/pending/i)).toBeInTheDocument();
   });
 });

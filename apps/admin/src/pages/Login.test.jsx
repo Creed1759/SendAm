@@ -25,9 +25,13 @@ describe('Login Component', () => {
 
   it('handles successful login and redirects', async () => {
     renderLogin();
+    // Both fields are required; the email must be filled or HTML5 constraint
+    // validation blocks form submission (matching real browser behavior).
+    const emailInput = screen.getByPlaceholderText('you@example.com');
     const passwordInput = screen.getByPlaceholderText('Enter password');
     const submitButton = screen.getByRole('button', { name: /sign in/i });
 
+    await userEvent.type(emailInput, 'operator@example.com');
     await userEvent.type(passwordInput, 'correct_password');
     await userEvent.click(submitButton);
 
@@ -38,9 +42,11 @@ describe('Login Component', () => {
 
   it('handles failed login and displays error', async () => {
     renderLogin();
+    const emailInput = screen.getByPlaceholderText('you@example.com');
     const passwordInput = screen.getByPlaceholderText('Enter password');
     const submitButton = screen.getByRole('button', { name: /sign in/i });
 
+    await userEvent.type(emailInput, 'operator@example.com');
     await userEvent.type(passwordInput, 'wrong_password');
     await userEvent.click(submitButton);
 

@@ -10,16 +10,19 @@ export const handlers = [
     return HttpResponse.json({ message: 'Invalid credentials' }, { status: 401 });
   }),
 
-  // Current operator identity + permissions (server-authoritative RBAC).
-  http.get('*/api/admin/me', () => {
+  // Dashboard stats
+  http.get('*/api/admin/stats', () => {
     return HttpResponse.json({
-      data: { id: 'admin-1', email: 'operator@example.com', name: 'Operator', role: 'administrator', permissions: ['*'], mustChangePassword: false },
+      data: {
+        totalUsers: 42,
+        totalWallets: 7,
+        totalTransactions: 128,
+        successfulTransactions: 100,
+        failedTransactions: 8,
+        pendingTransactions: 20,
+        pendingKyc: 3,
+      },
     });
-  }),
-
-  // Self-serve password rotation; revokes other sessions server-side.
-  http.post('*/api/admin/password', () => {
-    return HttpResponse.json({ success: true, message: 'Password changed' });
   }),
 
   // Users
