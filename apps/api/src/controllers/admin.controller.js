@@ -304,6 +304,20 @@ const getWallets = async (req, res, next) => {
   } catch (error) { return next(error); }
 };
 
+const getTransaction = async (req, res, next) => {
+  try {
+    const tx = await prisma.transaction.findUnique({
+      where: { id: req.params.id },
+      include: { user: { select: { phoneNumber: true } } },
+    });
+    if (!tx) return sendError(res, 'Transaction not found', 404);
+    const item = withIdAliases([{ ...tx, userId: tx.user }])[0];
+    return sendSuccess(res, item);
+  } catch (error) {
+    next(error);
+  }
+};
+
 const getTransactions = async (req, res, next) => {
   try {
     const limit = parseLimit(req.query.limit);
@@ -532,6 +546,65 @@ const verifyAuditLogs = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * GET /admin/kyc/:id/expiry-status
+ *
+ * Returns the verification expiry and escalation state for a single KYC
+ * profile so compliance teams can review it without running the full sweep.
+ * Closes #333.
+ */
+const getKycExpiryStatus = async (req, res, next) => {
+  try {
+    const { getVerificationExpiryStatus } = require('../compliance/verification.expiry');
+    const profile = await prisma.kycProfile.findUnique({
+      where: { id: req.params.id },
+    });
+    if (!profile) return sendError(res, 'KYC profile not found', 404);
+    return sendSuccess(res, getVerificationExpiryStatus(profile));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /admin/compliance/expiry-summary
+ *
+ * Returns counts of profiles in each expiry state — stale, expired sanctions,
+ * escalation due — for the compliance dashboard.
+ * Closes #333.
+ */
+const getComplianceExpirySummary = async (req, res, next) => {
+  try {
+    const { isSanctionExpired, isKycStale, isEscalationDue } = require('../compliance/verification.expiry');
+    const profiles = await prisma.kycProfile.findMany({
+      where: { status: { in: ['approved', 'not_started'] } },
+      select: {
+        id: true,
+        status: true,
+        updatedAt: true,
+        lastScreenedAt: true,
+        sanctionsStatus: true,
+        metadata: true,
+        user: { select: { anonymizedAt: true } },
+      },
+    });
+
+    const active = profiles.filter((p) => !p.user?.anonymizedAt);
+    const summary = {
+      total: active.length,
+      sanctionExpired: active.filter(isSanctionExpired).length,
+      kycStale: active.filter(isKycStale).length,
+      escalationDue: active.filter(isEscalationDue).length,
+      missingVerification: active.filter((p) => p.status === 'not_started').length,
+    };
+
+    return sendSuccess(res, summary);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   login,
   acceptInvite,
@@ -547,6 +620,7 @@ module.exports = {
   getStats,
   getUsers,
   getWallets,
+  getTransaction,
   getTransactions,
   getKycProfiles,
   getAuditLogs,
@@ -560,4 +634,6 @@ module.exports = {
   escalateStuckPayment: actOnStuckPayment('escalate'),
   getLedgerDiscrepancies,
   verifyAuditLogs,
+  getKycExpiryStatus,
+  getComplianceExpirySummary,
 };
