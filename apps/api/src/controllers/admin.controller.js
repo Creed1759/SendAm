@@ -308,6 +308,20 @@ const getWallets = async (req, res, next) => {
   } catch (error) { return next(error); }
 };
 
+const getTransaction = async (req, res, next) => {
+  try {
+    const tx = await prisma.transaction.findUnique({
+      where: { id: req.params.id },
+      include: { user: { select: { phoneNumber: true } } },
+    });
+    if (!tx) return sendError(res, 'Transaction not found', 404);
+    const item = withIdAliases([{ ...tx, userId: tx.user }])[0];
+    return sendSuccess(res, item);
+  } catch (error) {
+    next(error);
+  }
+};
+
 const getTransactions = async (req, res, next) => {
   try {
     const limit = parseLimit(req.query.limit);
@@ -749,6 +763,7 @@ module.exports = {
   getStats,
   getUsers,
   getWallets,
+  getTransaction,
   getTransactions,
   getKycProfiles,
   getAuditLogs,

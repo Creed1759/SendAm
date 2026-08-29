@@ -75,6 +75,12 @@ export const getAdminTransactions = async (params = {}) => {
   return data;
 };
 
+// Single-transaction fetch for the drill-down detail page (#324).
+export const getAdminTransaction = async (id) => {
+  const { data } = await api.get(`/admin/transactions/${id}`);
+  return data;
+};
+
 export const getAdminKyc = async (params = {}) => {
   const { data } = await api.get('/admin/kyc', { params });
   return data;
