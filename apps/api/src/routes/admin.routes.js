@@ -29,6 +29,7 @@ router.get('/stats', requireAdmin('admin.read'), adminController.getStats);
 router.get('/users', requireAdmin('admin.read'), adminController.getUsers);
 router.get('/wallets', requireAdmin('admin.read'), adminController.getWallets);
 router.get('/transactions', requireAdmin('admin.read'), adminController.getTransactions);
+router.get('/transactions/:id', requireAdmin('admin.read'), adminController.getTransaction);
 router.post('/transactions/:id/refund', requireAdmin('operations.write'), adminController.refundTransaction);
 router.get('/payments/stuck', requireAdmin('operations.write'), adminController.getStuckPayments);
 router.post('/payments/stuck/:id/retry', requireAdmin('operations.write'), adminController.retryStuckPayment);
@@ -37,6 +38,8 @@ router.post('/payments/stuck/:id/escalate', requireAdmin('operations.write'), ad
 router.get('/ledger/discrepancies', requireAdmin('operations.write'), adminController.getLedgerDiscrepancies);
 router.get('/kyc', requireAdmin('compliance.read'), adminController.getKycProfiles);
 router.get('/kyc/export', requireAdmin('compliance.read'), adminController.exportKyc);
+router.get('/kyc/:id/expiry-status', requireAdmin('compliance.read'), adminController.getKycExpiryStatus);
+router.get('/compliance/expiry-summary', requireAdmin('compliance.read'), adminController.getComplianceExpirySummary);
 router.get('/audit-logs', requireAdmin('admin.read'), adminController.getAuditLogs);
 router.get('/audit-logs/verify', requireAdmin('admin.read'), adminController.verifyAuditLogs);
 
